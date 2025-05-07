@@ -1,0 +1,11 @@
+# OpenAI API key - Get one from https://platform.openai.com/account/api-keys
+OPENAI_API_KEY=
+
+# What to ask the AI about the image
+OPENAI_PROMPT="What is in this image? Describe it briefly but thoroughly."
+
+# Whether to analyze with OpenAI only when a person is detected by YOLO
+# Set to "true" to only analyze when a person is detected, "false" to always analyze
+OPENAI_CONDITION_PERSON=true
+
+OPENROUTER_API_KEY=
