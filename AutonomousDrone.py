@@ -117,108 +117,130 @@ class AutonomousDroneAgent:
     @tool
     def track_person_and_rotate(self, max_iterations: int = 30, yaw_strength: float = 0.2, scan_yaw_strength: float = 0.15, seconds_per_iteration: float = 2.5) -> str:
         """
-        Continuously looks for a person in the drone's video feed and rotates the drone to keep the person centered.
-        Does not move the drone forward/backward/sideways or up/down.
+        Commands the drone to take off, then continuously looks for a person in the drone's video feed and rotates the drone to keep the person centered.
+        Does not move the drone forward/backward/sideways or up/down during tracking.
+        Finally, commands the drone to land.
         Args:
             max_iterations: The maximum number of tracking attempts.
             yaw_strength: The magnitude of yaw rotation when a person is detected off-center.
             scan_yaw_strength: The magnitude of yaw rotation when scanning for a person if not found.
             seconds_per_iteration: Time to wait between iterations, allowing for drone movement, new frame capture, and LLM analysis.
         """
-        print(f"Starting person tracking for up to {max_iterations} iterations.")
-        person_sighted_in_previous_iteration = False
-        consecutive_no_person_scans = 0 # Tracks how many consecutive frames a person isn't seen after being seen
-
-        for i in range(max_iterations):
-            print(f"Tracking iteration {i+1}/{max_iterations}...")
-            current_yaw = 0.0
-            try:
-                frame_result = self.get_drone_frame_info()
-
-                if isinstance(frame_result, str):
-                    print(f"Could not get drone frame: {frame_result}. Skipping this iteration.")
-                    time.sleep(seconds_per_iteration)
-                    continue
-
-                agent_image = frame_result
-                pil_image = agent_image.pil_image
-
-                buffered = BytesIO()
-                pil_image.save(buffered, format="PNG")
-                img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
-
-                messages = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "Analyze this image from a drone's camera. Is a person clearly visible? If yes, in which horizontal third of the image are they primarily located: 'left', 'center', or 'right'? If no person is clearly visible, or if their location cannot be reliably determined, respond with only one word: 'left', 'center', 'right', or 'none'."},
-                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_base64}"}}
-                        ]
-                    }
-                ]
-                
-                print("Sending frame to LLM for analysis...")
-                response = litellm.completion(
-                    model=self.model.model_id,
-                    messages=messages,
-                    temperature=0.2, 
-                    max_tokens=50 
-                )
-                
-                llm_output = response.choices[0].message.content.strip().lower()
-                print(f"LLM analysis result: '{llm_output}'")
-
-                if "left" in llm_output:
-                    current_yaw = -yaw_strength
-                    print(f"Person detected on the left. Yawing left (strength: {current_yaw}).")
-                    person_sighted_in_previous_iteration = True
-                    consecutive_no_person_scans = 0
-                elif "right" in llm_output:
-                    current_yaw = yaw_strength
-                    print(f"Person detected on the right. Yawing right (strength: {current_yaw}).")
-                    person_sighted_in_previous_iteration = True
-                    consecutive_no_person_scans = 0
-                elif "center" in llm_output:
-                    # current_yaw remains 0.0
-                    print("Person detected in the center. Holding position.")
-                    person_sighted_in_previous_iteration = True
-                    consecutive_no_person_scans = 0
-                else: # "none" or unexpected LLM output
-                    print("No person clearly detected by LLM.")
-                    if person_sighted_in_previous_iteration:
-                        consecutive_no_person_scans += 1
-                        if consecutive_no_person_scans <= 2:
-                            print(f"Person lost (iteration {consecutive_no_person_scans} of being lost). Holding position to re-evaluate.")
-                            # current_yaw remains 0.0
-                        else:
-                            print(f"Person lost for >2 iterations. Initiating scan.")
-                            current_yaw = scan_yaw_strength * (-1 if (consecutive_no_person_scans - 3) % 2 == 0 else 1)
-                            print(f"Scanning for person. Yaw: {current_yaw}")
-                    else:
-                        current_yaw = scan_yaw_strength * (-1 if i % 4 < 2 else 1) # Broader scan pattern: L, L, R, R
-                        print(f"No person sighted previously. Scanning. Yaw: {current_yaw}")
-                    
-                    if not ("left" in llm_output or "right" in llm_output or "center" in llm_output): # If truly "none"
-                        person_sighted_in_previous_iteration = False
-
-
-                if current_yaw != 0.0:
-                    move_result = self.move_drone(yaw=current_yaw, ascent=0, roll=0, pitch=0)
-                    print(f"Move command result: {move_result}")
-                else:
-                    print("No yaw adjustment needed for this iteration.")
-
-            except litellm.exceptions.APIConnectionError as e:
-                print(f"LLM API Connection Error: {str(e)}. Check API key, network, and model availability. Skipping iteration.")
-            except litellm.exceptions.RateLimitError as e:
-                print(f"LLM Rate Limit Error: {str(e)}. Waiting before retrying or skipping. Skipping iteration.")
-            except Exception as e:
-                print(f"Error in tracking iteration {i+1}: {str(e)}")
+        print("Initiating automated person tracking sequence...")
+        
+        try:
+            # --- Takeoff --- 
+            takeoff_result = self.drone_takeoff()
+            print(f"Takeoff result: {takeoff_result}")
+            if "error" in takeoff_result.lower() or "failed" in takeoff_result.lower():
+                return f"Takeoff failed, cannot start tracking: {takeoff_result}"
             
-            print(f"Waiting for {seconds_per_iteration} seconds before next iteration...")
-            time.sleep(seconds_per_iteration)
+            # Give a brief moment for the drone to stabilize after takeoff
+            print("Stabilizing after takeoff...")
+            time.sleep(5)
 
-        return f"Person tracking completed after {max_iterations} iterations."
+            print(f"Starting person tracking for up to {max_iterations} iterations.")
+            person_sighted_in_previous_iteration = False
+            consecutive_no_person_scans = 0 # Tracks how many consecutive frames a person isn't seen after being seen
+
+            for i in range(max_iterations):
+                print(f"Tracking iteration {i+1}/{max_iterations}...")
+                current_yaw = 0.0
+                try:
+                    frame_result = self.get_drone_frame_info()
+
+                    if isinstance(frame_result, str):
+                        print(f"Could not get drone frame: {frame_result}. Skipping this iteration.")
+                        time.sleep(seconds_per_iteration)
+                        continue
+
+                    agent_image = frame_result
+                    pil_image = agent_image.pil_image
+
+                    buffered = BytesIO()
+                    pil_image.save(buffered, format="PNG")
+                    img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+                    messages = [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "Analyze this image from a drone's camera. Is a person clearly visible? If yes, in which horizontal third of the image are they primarily located: 'left', 'center', or 'right'? If no person is clearly visible, or if their location cannot be reliably determined, respond with only one word: 'left', 'center', 'right', or 'none'."},
+                                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_base64}"}}
+                            ]
+                        }
+                    ]
+                    
+                    print("Sending frame to LLM for analysis...")
+                    response = litellm.completion(
+                        model=self.model.model_id,
+                        messages=messages,
+                        temperature=0.2, 
+                        max_tokens=50 
+                    )
+                    
+                    llm_output = response.choices[0].message.content.strip().lower()
+                    print(f"LLM analysis result: '{llm_output}'")
+
+                    if "left" in llm_output:
+                        current_yaw = -yaw_strength
+                        print(f"Person detected on the left. Yawing left (strength: {current_yaw}).")
+                        person_sighted_in_previous_iteration = True
+                        consecutive_no_person_scans = 0
+                    elif "right" in llm_output:
+                        current_yaw = yaw_strength
+                        print(f"Person detected on the right. Yawing right (strength: {current_yaw}).")
+                        person_sighted_in_previous_iteration = True
+                        consecutive_no_person_scans = 0
+                    elif "center" in llm_output:
+                        # current_yaw remains 0.0
+                        print("Person detected in the center. Holding position.")
+                        person_sighted_in_previous_iteration = True
+                        consecutive_no_person_scans = 0
+                    else: # "none" or unexpected LLM output
+                        print("No person clearly detected by LLM.")
+                        if person_sighted_in_previous_iteration:
+                            consecutive_no_person_scans += 1
+                            if consecutive_no_person_scans <= 2:
+                                print(f"Person lost (iteration {consecutive_no_person_scans} of being lost). Holding position to re-evaluate.")
+                                # current_yaw remains 0.0
+                            else:
+                                print(f"Person lost for >2 iterations. Initiating scan.")
+                                current_yaw = scan_yaw_strength * (-1 if (consecutive_no_person_scans - 3) % 2 == 0 else 1)
+                                print(f"Scanning for person. Yaw: {current_yaw}")
+                        else:
+                            current_yaw = scan_yaw_strength * (-1 if i % 4 < 2 else 1) # Broader scan pattern: L, L, R, R
+                            print(f"No person sighted previously. Scanning. Yaw: {current_yaw}")
+                        
+                        if not ("left" in llm_output or "right" in llm_output or "center" in llm_output): # If truly "none"
+                            person_sighted_in_previous_iteration = False
+
+
+                    if current_yaw != 0.0:
+                        move_result = self.move_drone(yaw=current_yaw, ascent=0, roll=0, pitch=0)
+                        print(f"Move command result: {move_result}")
+                    else:
+                        print("No yaw adjustment needed for this iteration.")
+
+                except litellm.exceptions.APIConnectionError as e:
+                    print(f"LLM API Connection Error: {str(e)}. Check API key, network, and model availability. Skipping iteration.")
+                except litellm.exceptions.RateLimitError as e:
+                    print(f"LLM Rate Limit Error: {str(e)}. Waiting before retrying or skipping. Skipping iteration.")
+                except Exception as e:
+                    print(f"Error in tracking iteration {i+1}: {str(e)}")
+                
+                print(f"Waiting for {seconds_per_iteration} seconds before next iteration...")
+                time.sleep(seconds_per_iteration)
+
+            return f"Person tracking completed after {max_iterations} iterations."
+        except Exception as e:
+            print(f"An overall error occurred during the track_person_and_rotate sequence: {e}")
+            return f"Error during tracking sequence: {e}"
+        finally:
+            # --- Land --- 
+            print("Landing the drone...")
+            land_result = self.drone_land()
+            print(f"Landing result: {land_result}")
 
     # @tool
     # def enable_drone_sdk_control(self) -> str:
