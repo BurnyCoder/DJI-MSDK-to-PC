@@ -8,6 +8,7 @@ import time # Added for delays in tracking loop
 import base64 # Added for image encoding
 from io import BytesIO # Added for image encoding
 from openai import OpenAI # Added for OpenAI API
+import atexit # Added for graceful connection closing
 
 # Load environment variables from .env file
 load_dotenv()
@@ -22,6 +23,44 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
+# --- Global Drone Connection ---
+drone_connection = None
+
+def initialize_drone_connection():
+    """Initializes the global drone connection."""
+    global drone_connection
+    if drone_connection is None:
+        try:
+            print(f"Attempting to connect to drone at IP: {DRONE_IP_ADDR}...")
+            drone_connection = OpenDJI(DRONE_IP_ADDR)
+            print("Successfully connected to the drone.")
+            # Optionally, enable control right after connection
+            # result = drone_connection.enableControl(True)
+            # print(f"Enable SDK control attempt post-connection. Drone response: {result}")
+        except Exception as e:
+            print(f"Failed to connect to the drone: {e}")
+            drone_connection = None # Ensure it's None on failure
+            # raise ConnectionError(f"Failed to initialize drone connection: {e}") # Or raise an error
+    return drone_connection
+
+def close_drone_connection():
+    """Closes the global drone connection if it's open."""
+    global drone_connection
+    if drone_connection:
+        try:
+            print("Closing drone connection...")
+            # result = drone_connection.disableControl(True) # Optionally disable control before closing
+            # print(f"Disable SDK control attempt pre-close. Drone response: {result}")
+            drone_connection.close()
+            print("Drone connection closed.")
+        except Exception as e:
+            print(f"Error closing drone connection: {e}")
+        finally:
+            drone_connection = None
+
+# Register the close function to be called on exit
+atexit.register(close_drone_connection)
+
 # --- Drone Control Tools ---
 @tool
 def drone_takeoff() -> str:
@@ -31,12 +70,16 @@ def drone_takeoff() -> str:
     Returns:
         str: A message indicating the result of the takeoff command.
     """
+    global drone_connection
+    if drone_connection is None:
+        initialize_drone_connection()
+        if drone_connection is None:
+            return "Error: Drone connection not established. Cannot take off."
     try:
-        with OpenDJI(DRONE_IP_ADDR) as drone:
-            result = drone.enableControl(True)
-            print(f"Enable SDK control command sent. Drone response: {result}")
-            result = drone.takeoff(True)
-            return f"Takeoff command sent. Drone response: {result}"
+        result = drone_connection.enableControl(True)
+        print(f"Enable SDK control command sent. Drone response: {result}")
+        result = drone_connection.takeoff(True)
+        return f"Takeoff command sent. Drone response: {result}"
     except Exception as e:
         return f"Error during takeoff: {str(e)}"
 
@@ -48,12 +91,16 @@ def drone_land() -> str:
     Returns:
         str: A message indicating the result of the land command.
     """
+    global drone_connection
+    if drone_connection is None:
+        initialize_drone_connection()
+        if drone_connection is None:
+            return "Error: Drone connection not established. Cannot land."
     try:
-        with OpenDJI(DRONE_IP_ADDR) as drone:
-            result = drone.enableControl(True)
-            print(f"Enable SDK control command sent. Drone response: {result}")
-            result = drone.land(True)
-            return f"Land command sent. Drone response: {result}"
+        result = drone_connection.enableControl(True)
+        print(f"Enable SDK control command sent. Drone response: {result}")
+        result = drone_connection.land(True)
+        return f"Land command sent. Drone response: {result}"
     except Exception as e:
         return f"Error during land: {str(e)}"
 
@@ -77,12 +124,16 @@ def move_drone(rcw: float, du: float, lr: float, bf: float) -> str:
     Returns:
         str: A message indicating the result of the move command.
     """
+    global drone_connection
+    if drone_connection is None:
+        initialize_drone_connection()
+        if drone_connection is None:
+            return "Error: Drone connection not established. Cannot move."
     try:
-        with OpenDJI(DRONE_IP_ADDR) as drone:
-            result = drone.enableControl(True)
-            print(f"Enable SDK control command sent. Drone response: {result}")
-            drone.move(rcw, du, lr, bf)
-            return f"Move command sent: rcw={rcw}, du={du}, lr={lr}, bf={bf}"
+        result = drone_connection.enableControl(True)
+        print(f"Enable SDK control command sent. Drone response: {result}")
+        drone_connection.move(rcw, du, lr, bf)
+        return f"Move command sent: rcw={rcw}, du={du}, lr={lr}, bf={bf}"
     except Exception as e:
         return f"Error moving drone: {str(e)}"
 
@@ -94,27 +145,32 @@ def get_drone_frame_info() -> AgentImage:
     Returns:
         AgentImage: An AgentImage object containing the frame, or a string with an error message if unsuccessful.
     """
+    global drone_connection
+    if drone_connection is None:
+        initialize_drone_connection()
+        if drone_connection is None:
+            # This function is typed to return AgentImage, but error cases return str.
+            # This inconsistency was in the original code.
+            # For now, returning a string error message to match existing pattern.
+            return "Error: Drone connection not established. Cannot get frame."
     try:
-        with OpenDJI(DRONE_IP_ADDR) as drone:
-            result = drone.enableControl(True)
-            print(f"Enable SDK control command sent. Drone response: {result}")
-            frame_np = drone.getFrame() # Assuming this returns a NumPy array
-            if frame_np is None:
-                print("No frame available from the drone.")
-                raise "No frame available from the drone."
+        # Assuming enableControl is not strictly needed for just getting a frame,
+        # or if it is, it should be managed at a higher level for continuous operations.
+        # If enableControl is needed here, it should be added:
+        # result = drone_connection.enableControl(True)
+        # print(f"Enable SDK control command sent for get_frame. Drone response: {result}")
+        
+        frame_np = drone_connection.getFrame() # Assuming this returns a NumPy array
+        if frame_np is None:
+            print("No frame available from the drone.")
+            # Maintaining the string return type for error, as per original function's behavior.
+            raise ValueError("No frame available from the drone.") 
 
-            # Convert NumPy array to PIL Image
-            # Assuming frame_np is in a format that PIL can understand (e.g., RGB, Grayscale)
-            # If the drone returns BGR, it might need conversion: pil_image = Image.fromarray(cv2.cvtColor(frame_np, cv2.COLOR_BGR2RGB))
-            # For now, assuming direct conversion works.
-            pil_image = Image.fromarray(frame_np.astype(np.uint8)) # Ensure correct dtype for PIL
-            return AgentImage(pil_image)
+        pil_image = Image.fromarray(frame_np.astype(np.uint8)) # Ensure correct dtype for PIL
+        return AgentImage(pil_image)
     except ValueError as ve: # Catch the specific error for no frame
-        return f"Error getting drone frame: {str(ve)}" # Return string on error
+        return f"Error getting drone frame: {str(ve)}" 
     except Exception as e:
-        # This also returns a string, which is inconsistent with AgentImage return type.
-        # This function needs a consistent error handling strategy for AgentImage.
-        # For now, following the existing pattern of returning error strings.
         return f"Error getting drone frame info: {str(e)}"
 
 @tool
@@ -135,133 +191,140 @@ def track_person_and_rotate(max_iterations: int = 30, yaw_strength: float = 0.2,
         str: A message indicating the result of the tracking sequence.
     """
     print("Initiating automated person tracking sequence...")
+    global drone_connection
     
+    if drone_connection is None:
+        initialize_drone_connection()
+        if drone_connection is None:
+            return "Error: Drone connection not established. Cannot start tracking."
+
     try:
-        # Open a single persistent connection to the drone
-        with OpenDJI(DRONE_IP_ADDR) as drone:
-            result = drone.enableControl(True)
-            print(f"Enable SDK control command sent. Drone response: {result}")
-            # --- Takeoff --- 
-            print("Sending takeoff command...")
-            takeoff_result = drone.takeoff(True)
-            print(f"Takeoff result: {takeoff_result}")
-            if "error" in str(takeoff_result).lower() or "failed" in str(takeoff_result).lower():
-                return f"Takeoff failed, cannot start tracking: {takeoff_result}"
-            
-            # Give a brief moment for the drone to stabilize after takeoff
-            print("Stabilizing after takeoff...")
-            time.sleep(5)
+        # Use the global drone_connection
+        drone = drone_connection 
+        
+        result = drone.enableControl(True)
+        print(f"Enable SDK control command sent. Drone response: {result}")
+        # --- Takeoff --- 
+        print("Sending takeoff command...")
+        takeoff_result = drone.takeoff(True)
+        print(f"Takeoff result: {takeoff_result}")
+        if "error" in str(takeoff_result).lower() or "failed" in str(takeoff_result).lower():
+            return f"Takeoff failed, cannot start tracking: {takeoff_result}"
+        
+        # Give a brief moment for the drone to stabilize after takeoff
+        print("Stabilizing after takeoff...")
+        time.sleep(5)
 
-            print(f"Starting person tracking for up to {max_iterations} iterations.")
-            person_sighted_in_previous_iteration = False
-            consecutive_no_person_scans = 0 # Tracks how many consecutive frames a person isn't seen after being seen
+        print(f"Starting person tracking for up to {max_iterations} iterations.")
+        person_sighted_in_previous_iteration = False
+        consecutive_no_person_scans = 0 # Tracks how many consecutive frames a person isn't seen after being seen
 
-            for i in range(max_iterations):
-                print(f"Tracking iteration {i+1}/{max_iterations}...")
-                current_yaw = 0.0
-                iteration_logic_start_time = time.time()
+        for i in range(max_iterations):
+            print(f"Tracking iteration {i+1}/{max_iterations}...")
+            current_yaw = 0.0
+            iteration_logic_start_time = time.time()
 
-                try:
-                    # Get frame directly from the drone instance
-                    frame_np = drone.getFrame()
-                    
-                    if frame_np is None:
-                        print("No frame available from the drone. Skipping this iteration.")
-                        time.sleep(seconds_per_iteration)
-                        continue
+            try:
+                # Get frame directly from the drone instance
+                frame_np = drone.getFrame()
+                
+                if frame_np is None:
+                    print("No frame available from the drone. Skipping this iteration.")
+                    time.sleep(seconds_per_iteration)
+                    continue
 
-                    # Convert NumPy array to PIL Image
-                    pil_image = Image.fromarray(frame_np.astype(np.uint8))
-                    
-                    # Create an AgentImage for consistency with previous code
-                    agent_image = AgentImage(pil_image)
+                # Convert NumPy array to PIL Image
+                pil_image = Image.fromarray(frame_np.astype(np.uint8))
+                
+                # Create an AgentImage for consistency with previous code
+                agent_image = AgentImage(pil_image)
 
-                    buffered = BytesIO()
-                    pil_image.save(buffered, format="PNG")
-                    img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                buffered = BytesIO()
+                pil_image.save(buffered, format="PNG")
+                img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-                    # Using OpenAI for image analysis instead of LiteLLM
-                    print("Sending frame to OpenAI for analysis...")
-                    response = openai_client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[
-                            {
-                                "role": "user",
-                                "content": [
-                                    {"type": "text", "text": "Analyze this image from a drone's camera. Is a person clearly visible? If yes, in which horizontal third of the image are they primarily located: 'left', 'center', or 'right'? If no person is clearly visible, or if their location cannot be reliably determined, respond with only one word: 'left', 'center', 'right', or 'none'."},
-                                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_base64}"}}
-                                ]
-                            }
-                        ],
-                        max_tokens=300,
-                    )
-                    
-                    llm_output = response.choices[0].message.content.strip().lower()
-                    print(f"OpenAI analysis result: '{llm_output}'")
+                # Using OpenAI for image analysis instead of LiteLLM
+                print("Sending frame to OpenAI for analysis...")
+                response = openai_client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "Analyze this image from a drone's camera. Is a person clearly visible? If yes, in which horizontal third of the image are they primarily located: 'left', 'center', or 'right'? If no person is clearly visible, or if their location cannot be reliably determined, respond with only one word: 'left', 'center', 'right', or 'none'."},
+                                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_base64}"}}
+                            ]
+                        }
+                    ],
+                    max_tokens=300,
+                )
+                
+                llm_output = response.choices[0].message.content.strip().lower()
+                print(f"OpenAI analysis result: '{llm_output}'")
 
-                    if "left" in llm_output:
-                        current_yaw = -yaw_strength
-                        print(f"Person detected on the left. Yawing left (strength: {current_yaw}).")
-                        person_sighted_in_previous_iteration = True
-                        consecutive_no_person_scans = 0
-                    elif "right" in llm_output:
-                        current_yaw = yaw_strength
-                        print(f"Person detected on the right. Yawing right (strength: {current_yaw}).")
-                        person_sighted_in_previous_iteration = True
-                        consecutive_no_person_scans = 0
-                    elif "center" in llm_output:
-                        # current_yaw remains 0.0
-                        print("Person detected in the center. Holding position.")
-                        person_sighted_in_previous_iteration = True
-                        consecutive_no_person_scans = 0
-                    else: # "none" or unexpected LLM output
-                        print("No person clearly detected by OpenAI.")
-                        if person_sighted_in_previous_iteration:
-                            consecutive_no_person_scans += 1
-                            if consecutive_no_person_scans <= 2:
-                                print(f"Person lost (iteration {consecutive_no_person_scans} of being lost). Holding position to re-evaluate.")
-                                # current_yaw remains 0.0
-                            else:
-                                print(f"Person lost for >2 iterations. Initiating scan.")
-                                current_yaw = scan_yaw_strength * (-1 if (consecutive_no_person_scans - 3) % 2 == 0 else 1)
-                                print(f"Scanning for person. Yaw: {current_yaw}")
+                if "left" in llm_output:
+                    current_yaw = -yaw_strength
+                    print(f"Person detected on the left. Yawing left (strength: {current_yaw}).")
+                    person_sighted_in_previous_iteration = True
+                    consecutive_no_person_scans = 0
+                elif "right" in llm_output:
+                    current_yaw = yaw_strength
+                    print(f"Person detected on the right. Yawing right (strength: {current_yaw}).")
+                    person_sighted_in_previous_iteration = True
+                    consecutive_no_person_scans = 0
+                elif "center" in llm_output:
+                    # current_yaw remains 0.0
+                    print("Person detected in the center. Holding position.")
+                    person_sighted_in_previous_iteration = True
+                    consecutive_no_person_scans = 0
+                else: # "none" or unexpected LLM output
+                    print("No person clearly detected by OpenAI.")
+                    if person_sighted_in_previous_iteration:
+                        consecutive_no_person_scans += 1
+                        if consecutive_no_person_scans <= 2:
+                            print(f"Person lost (iteration {consecutive_no_person_scans} of being lost). Holding position to re-evaluate.")
+                            # current_yaw remains 0.0
                         else:
-                            current_yaw = scan_yaw_strength * (-1 if i % 4 < 2 else 1) # Broader scan pattern: L, L, R, R
-                            print(f"No person sighted previously. Scanning. Yaw: {current_yaw}")
-                        
-                        if not ("left" in llm_output or "right" in llm_output or "center" in llm_output): # If truly "none"
-                            person_sighted_in_previous_iteration = False
-
-                    if current_yaw != 0.0:
-                        # Move drone directly using the drone instance
-                        print(f"Executing pulsed rotation: rcw={current_yaw} for {rotation_pulse_duration}s...")
-                        drone.move(current_yaw, 0, 0, 0) # Start rotation
-                        time.sleep(rotation_pulse_duration) # Rotate for the specified pulse duration
-                        print("Stopping rotation.")
-                        drone.move(0, 0, 0, 0) # Stop rotation
+                            print(f"Person lost for >2 iterations. Initiating scan.")
+                            current_yaw = scan_yaw_strength * (-1 if (consecutive_no_person_scans - 3) % 2 == 0 else 1)
+                            print(f"Scanning for person. Yaw: {current_yaw}")
                     else:
-                        print("No yaw adjustment needed for this iteration.")
+                        current_yaw = scan_yaw_strength * (-1 if i % 4 < 2 else 1) # Broader scan pattern: L, L, R, R
+                        print(f"No person sighted previously. Scanning. Yaw: {current_yaw}")
+                    
+                    if not ("left" in llm_output or "right" in llm_output or "center" in llm_output): # If truly "none"
+                        person_sighted_in_previous_iteration = False
 
-                except Exception as e:
-                    print(f"Error in tracking iteration {i+1}: {str(e)}")
-                
-                iteration_logic_end_time = time.time()
-                time_spent_in_iteration_logic = iteration_logic_end_time - iteration_logic_start_time
-                
-                remaining_wait_time = seconds_per_iteration - time_spent_in_iteration_logic
-                
-                if remaining_wait_time > 0:
-                    print(f"Waiting for {remaining_wait_time:.2f} seconds before next iteration's processing...")
-                    time.sleep(remaining_wait_time)
+                if current_yaw != 0.0:
+                    # Move drone directly using the drone instance
+                    print(f"Executing pulsed rotation: rcw={current_yaw} for {rotation_pulse_duration}s...")
+                    drone.move(current_yaw, 0, 0, 0) # Start rotation
+                    time.sleep(rotation_pulse_duration) # Rotate for the specified pulse duration
+                    print("Stopping rotation.")
+                    drone.move(0, 0, 0, 0) # Stop rotation
                 else:
-                    print(f"Iteration logic (processing/movement) took {time_spent_in_iteration_logic:.2f}s. Proceeding to next iteration immediately.")
+                    print("No yaw adjustment needed for this iteration.")
 
-            # --- Land --- 
-            print("Landing the drone...")
-            land_result = drone.land(True)
-            print(f"Landing result: {land_result}")
+            except Exception as e:
+                print(f"Error in tracking iteration {i+1}: {str(e)}")
             
-            return f"Person tracking completed after {max_iterations} iterations."
+            iteration_logic_end_time = time.time()
+            time_spent_in_iteration_logic = iteration_logic_end_time - iteration_logic_start_time
+            
+            remaining_wait_time = seconds_per_iteration - time_spent_in_iteration_logic
+            
+            if remaining_wait_time > 0:
+                print(f"Waiting for {remaining_wait_time:.2f} seconds before next iteration's processing...")
+                time.sleep(remaining_wait_time)
+            else:
+                print(f"Iteration logic (processing/movement) took {time_spent_in_iteration_logic:.2f}s. Proceeding to next iteration immediately.")
+
+        # --- Land --- 
+        print("Landing the drone...")
+        land_result = drone.land(True)
+        print(f"Landing result: {land_result}")
+        
+        return f"Person tracking completed after {max_iterations} iterations."
     except Exception as e:
         print(f"An overall error occurred during the track_person_and_rotate sequence: {e}")
         return f"Error during tracking sequence: {e}"
@@ -302,6 +365,13 @@ class AutonomousDroneAgent:
             max_tokens=50000
         )
 
+        # Ensure drone connection is initialized when agent is created
+        initialize_drone_connection() 
+        if drone_connection is None:
+            # This is a critical failure for the agent if it relies on the drone.
+            # Consider how to handle this - maybe raise an exception or log a severe warning.
+            print("CRITICAL: Drone connection failed to initialize for AutonomousDroneAgent.")
+
         # Create the ToolCallingAgent with the defined drone tools
         # The tools are now defined outside the class
         self.drone_agent = ToolCallingAgent(
@@ -337,33 +407,47 @@ class AutonomousDroneAgent:
 if __name__ == "__main__":
     print("Initializing Autonomous Drone Agent...")
     try:
-        agent_instance = AutonomousDroneAgent()
-        print("Autonomous Drone Agent Initialized.")
-        print(f"Attempting to connect to drone at IP: {DRONE_IP_ADDR}")
-        print("Ensure your drone is powered on and connected to the network.")
-        
-        # Option 1: Use the agent to run queries
-        print("\nOption 1: You can run queries against the agent instance. For example:")
-        print("  response = agent_instance.run_query('Take off the drone.')")
-        print("  print(response)")
-        
-        # Option 2: Directly use the person tracking function
-        print("\nOption 2: Or directly use the person tracking function:")
-        print("  result = track_person_and_rotate()")
-        print("  print(result)")
-        
-        # Uncomment one of these to test (requires drone connection)
-        print("\n--- Running Example ---")
+        # Attempt to initialize connection first, as it's critical
+        if initialize_drone_connection() is None:
+            print("Failed to connect to the drone. Aborting example usage.")
+            # Optionally, exit here if connection is mandatory for any further steps
+            # exit(1) 
+        else:
+            print(f"Drone connection established/verified at IP: {DRONE_IP_ADDR}")
+            print("Ensure your drone is powered on and connected to the network.")
 
-        # Option 1 example:
-        # query = "Get drone frame info."
-        # agent_instance.run_query(query)
-        
-        # Option 2 example:
-        result = track_person_and_rotate(max_iterations=100000)
-        # print(result)
+            # Initialize agent after ensuring (or attempting) connection
+            agent_instance = AutonomousDroneAgent()
+            print("Autonomous Drone Agent Initialized.")
+            
+            # Option 1: Use the agent to run queries
+            print("\nOption 1: You can run queries against the agent instance. For example:")
+            print("  response = agent_instance.run_query('Take off the drone.')")
+            print("  print(response)")
+            
+            # Option 2: Directly use the person tracking function
+            print("\nOption 2: Or directly use the person tracking function:")
+            print("  result = track_person_and_rotate()")
+            print("  print(result)")
+            
+            # Uncomment one of these to test (requires drone connection)
+            print("\n--- Running Example ---")
+
+            # Option 1 example:
+            # query = "Get drone frame info."
+            # agent_instance.run_query(query)
+            
+            # Option 2 example:
+            result = track_person_and_rotate(max_iterations=100000)
+            # print(result)
 
     except ValueError as ve:
         print(f"Initialization Error: {ve}")
     except Exception as e:
         print(f"An unexpected error occurred during initialization or example usage: {e}")
+    finally:
+        # Explicitly close connection here if not relying solely on atexit,
+        # or if specific cleanup order is needed before other atexit handlers.
+        # However, atexit should handle it.
+        # close_drone_connection() # This might be redundant due to atexit
+        print("Application finished.")
