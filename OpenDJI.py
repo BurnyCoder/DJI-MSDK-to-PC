@@ -838,4 +838,3 @@ class BackgroundVideoCodec:
     def unregisterListener(self):
         """ Remove frame listener """
         self._listener = None
-
