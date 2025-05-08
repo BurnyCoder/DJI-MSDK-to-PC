@@ -80,22 +80,11 @@ with OpenDJI(IP_ADDR) as drone:
         if keyboard.is_pressed('down'):  pitch = -MOVE_VALUE
         if keyboard.is_pressed('up'):    pitch =  MOVE_VALUE
 
-        
-        if yaw != 0.0 or ascent != 0.0 or roll != 0.0 or pitch != 0.0:
-            print(f"Moving drone: yaw={yaw}, ascent={ascent}, roll={roll}, pitch={pitch}")
         # Send the movement command
         drone.move(yaw, ascent, roll, pitch)
 
         # Special commands
-        if keyboard.is_pressed('f'): 
-            print("Sending takeoff command...")
-            print(drone.takeoff(True))
-        if keyboard.is_pressed('r'): 
-            print("Sending land command...")
-            print(drone.land(True))
-        if keyboard.is_pressed('e'): 
-            print("Enabling keyboard control...")
-            print(drone.enableControl(True))
-        if keyboard.is_pressed('q'): 
-            print("Disabling keyboard control...")
-            print(drone.disableControl(True))
+        if keyboard.is_pressed('f'): print(drone.takeoff(True))
+        if keyboard.is_pressed('r'): print(drone.land(True))
+        if keyboard.is_pressed('e'): print(drone.enableControl(True))
+        if keyboard.is_pressed('q'): print(drone.disableControl(True))
