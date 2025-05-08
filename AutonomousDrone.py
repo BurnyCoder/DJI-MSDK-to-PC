@@ -277,6 +277,11 @@ def track_person_and_rotate(max_iterations: int = 30, yaw_strength: float = 0.2,
                     print("Person detected in the center. Holding position.")
                     person_sighted_in_previous_iteration = True
                     consecutive_no_person_scans = 0
+                    # Move forward if person is in the center
+                    print(f"Moving forward towards person (strength: 0.1) for {rotation_pulse_duration}s...")
+                    drone.move(0, 0, 0, 0.1) # bf = 0.1 for forward
+                    time.sleep(rotation_pulse_duration)
+                    drone.move(0, 0, 0, 0) # Stop forward movement
                 else: # "none" or unexpected LLM output
                     print("No person clearly detected by OpenAI.")
                     if person_sighted_in_previous_iteration:
