@@ -33,6 +33,8 @@ def drone_takeoff() -> str:
     """
     try:
         with OpenDJI(DRONE_IP_ADDR) as drone:
+            result = drone.enableControl(True)
+            print(f"Enable SDK control command sent. Drone response: {result}")
             result = drone.takeoff(True)
             return f"Takeoff command sent. Drone response: {result}"
     except Exception as e:
@@ -48,6 +50,8 @@ def drone_land() -> str:
     """
     try:
         with OpenDJI(DRONE_IP_ADDR) as drone:
+            result = drone.enableControl(True)
+            print(f"Enable SDK control command sent. Drone response: {result}")
             result = drone.land(True)
             return f"Land command sent. Drone response: {result}"
     except Exception as e:
@@ -75,8 +79,8 @@ def move_drone(rcw: float, du: float, lr: float, bf: float) -> str:
     """
     try:
         with OpenDJI(DRONE_IP_ADDR) as drone:
-            # Ensure drone control is enabled for movement commands
-            # drone.enableControl(True) # Optional: ensure control is enabled before move
+            result = drone.enableControl(True)
+            print(f"Enable SDK control command sent. Drone response: {result}")
             drone.move(rcw, du, lr, bf)
             return f"Move command sent: rcw={rcw}, du={du}, lr={lr}, bf={bf}"
     except Exception as e:
@@ -92,6 +96,8 @@ def get_drone_frame_info() -> AgentImage:
     """
     try:
         with OpenDJI(DRONE_IP_ADDR) as drone:
+            result = drone.enableControl(True)
+            print(f"Enable SDK control command sent. Drone response: {result}")
             frame_np = drone.getFrame() # Assuming this returns a NumPy array
             if frame_np is None:
                 print("No frame available from the drone.")
@@ -132,6 +138,8 @@ def track_person_and_rotate(max_iterations: int = 30, yaw_strength: float = 0.2,
     try:
         # Open a single persistent connection to the drone
         with OpenDJI(DRONE_IP_ADDR) as drone:
+            result = drone.enableControl(True)
+            print(f"Enable SDK control command sent. Drone response: {result}")
             # --- Takeoff --- 
             print("Sending takeoff command...")
             takeoff_result = drone.takeoff(True)
@@ -224,14 +232,8 @@ def track_person_and_rotate(max_iterations: int = 30, yaw_strength: float = 0.2,
 
                     if current_yaw != 0.0:
                         # Move drone directly using the drone instance
-                        # Instead of a single command, continuously send the command for 2 seconds
-                        rotation_duration = 2.0  # seconds to rotate
-                        start_time = time.time()
-                        while time.time() - start_time < rotation_duration:
-                            drone.move(current_yaw, 0, 0, 0)
-                            print(f"Move command sent: rcw={current_yaw}, du=0, lr=0, bf=0")
-                            time.sleep(0.1)  # Small delay between commands
-                        print(f"Completed rotation sequence with yaw={current_yaw}")
+                        drone.move(current_yaw, 0, 0, 0)
+                        print(f"Move command sent: rcw={current_yaw}, du=0, lr=0, bf=0")
                     else:
                         print("No yaw adjustment needed for this iteration.")
 
@@ -239,13 +241,7 @@ def track_person_and_rotate(max_iterations: int = 30, yaw_strength: float = 0.2,
                     print(f"Error in tracking iteration {i+1}: {str(e)}")
                 
                 print(f"Waiting for {seconds_per_iteration} seconds before next iteration...")
-                # Adjust wait time to account for time already spent in rotation
-                if current_yaw != 0.0:
-                    adjusted_wait = max(0.1, seconds_per_iteration - 2.0)  # Subtract rotation duration
-                    print(f"Adjusting wait time to {adjusted_wait} seconds (after rotation)")
-                    time.sleep(adjusted_wait)
-                else:
-                    time.sleep(seconds_per_iteration)
+                time.sleep(seconds_per_iteration)
 
             # --- Land --- 
             print("Landing the drone...")
