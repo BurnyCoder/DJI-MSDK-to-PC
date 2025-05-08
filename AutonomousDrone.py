@@ -118,17 +118,18 @@ def get_drone_frame_info() -> AgentImage:
         return f"Error getting drone frame info: {str(e)}"
 
 @tool
-def track_person_and_rotate(max_iterations: int = 30, yaw_strength: float = 0.2, scan_yaw_strength: float = 0.15, seconds_per_iteration: float = 2.5) -> str:
+def track_person_and_rotate(max_iterations: int = 30, yaw_strength: float = 0.2, scan_yaw_strength: float = 0.015, seconds_per_iteration: float = 2.5, rotation_pulse_duration: float = 1.25) -> str:
     """
     Commands the drone to take off, then continuously looks for a person in the drone's video feed and rotates the drone to keep the person centered.
     Does not move the drone forward/backward/sideways or up/down during tracking.
-    Finally, commands the drone to land.
+    Rotation is applied in pulses. Finally, commands the drone to land.
 
     Args:
         max_iterations: The maximum number of tracking attempts.
         yaw_strength: The magnitude of yaw rotation when a person is detected off-center.
         scan_yaw_strength: The magnitude of yaw rotation when scanning for a person if not found.
-        seconds_per_iteration: Time to wait between iterations, allowing for drone movement, new frame capture, and LLM analysis.
+        seconds_per_iteration: The target total cycle time for each iteration (includes processing, potential rotation, and waiting).
+        rotation_pulse_duration: The duration (in seconds) for which the drone actively rotates before stopping, when a yaw adjustment is made.
     
     Returns:
         str: A message indicating the result of the tracking sequence.
@@ -158,6 +159,8 @@ def track_person_and_rotate(max_iterations: int = 30, yaw_strength: float = 0.2,
             for i in range(max_iterations):
                 print(f"Tracking iteration {i+1}/{max_iterations}...")
                 current_yaw = 0.0
+                iteration_logic_start_time = time.time()
+
                 try:
                     # Get frame directly from the drone instance
                     frame_np = drone.getFrame()
@@ -229,19 +232,29 @@ def track_person_and_rotate(max_iterations: int = 30, yaw_strength: float = 0.2,
                         if not ("left" in llm_output or "right" in llm_output or "center" in llm_output): # If truly "none"
                             person_sighted_in_previous_iteration = False
 
-
                     if current_yaw != 0.0:
                         # Move drone directly using the drone instance
-                        drone.move(current_yaw, 0, 0, 0)
-                        print(f"Move command sent: rcw={current_yaw}, du=0, lr=0, bf=0")
+                        print(f"Executing pulsed rotation: rcw={current_yaw} for {rotation_pulse_duration}s...")
+                        drone.move(current_yaw, 0, 0, 0) # Start rotation
+                        time.sleep(rotation_pulse_duration) # Rotate for the specified pulse duration
+                        print("Stopping rotation.")
+                        drone.move(0, 0, 0, 0) # Stop rotation
                     else:
                         print("No yaw adjustment needed for this iteration.")
 
                 except Exception as e:
                     print(f"Error in tracking iteration {i+1}: {str(e)}")
                 
-                print(f"Waiting for {seconds_per_iteration} seconds before next iteration...")
-                time.sleep(seconds_per_iteration)
+                iteration_logic_end_time = time.time()
+                time_spent_in_iteration_logic = iteration_logic_end_time - iteration_logic_start_time
+                
+                remaining_wait_time = seconds_per_iteration - time_spent_in_iteration_logic
+                
+                if remaining_wait_time > 0:
+                    print(f"Waiting for {remaining_wait_time:.2f} seconds before next iteration's processing...")
+                    time.sleep(remaining_wait_time)
+                else:
+                    print(f"Iteration logic (processing/movement) took {time_spent_in_iteration_logic:.2f}s. Proceeding to next iteration immediately.")
 
             # --- Land --- 
             print("Landing the drone...")
