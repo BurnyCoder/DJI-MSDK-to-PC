@@ -7,6 +7,7 @@ from PIL import Image # For converting numpy array to PIL Image
 import time # Added for delays in tracking loop
 import base64 # Added for image encoding
 from io import BytesIO # Added for image encoding
+from openai import OpenAI # Added for OpenAI API
 
 # Load environment variables from .env file
 load_dotenv()
@@ -15,6 +16,11 @@ load_dotenv()
 # Drone IP Address: fetched from .env or defaults if not set.
 # Ensure your drone is connected to this IP address.
 DRONE_IP_ADDR = os.getenv("DRONE_IP_ADDR", "192.168.1.115")
+# OpenAI API key from environment variable
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# Initialize OpenAI client
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 # --- Drone Control Tools ---
 @tool
@@ -48,21 +54,21 @@ def drone_land() -> str:
         return f"Error during land: {str(e)}"
 
 @tool
-def move_drone(yaw: float, ascent: float, roll: float, pitch: float) -> str:
+def move_drone(rcw: float, du: float, lr: float, bf: float) -> str:
     """
     Moves the drone with specified control values.
 
     These values are typically small floats, e.g., between -0.5 and 0.5.
-    Yaw: Rotational movement (left/right). Negative for left, positive for right.
-    Ascent: Vertical movement (up/down). Negative for down, positive for up.
-    Roll: Sideways movement (left/right). Negative for left, positive for right.
-    Pitch: Forward/backward movement. Negative for backward, positive for forward.
+    rcw: Rotational movement (rotate clockwise/anti-clockwise). Negative for anti-clockwise, positive for clockwise.
+    du: Vertical movement (down/up). Negative for down, positive for up.
+    lr: Sideways movement (left/right). Negative for left, positive for right.
+    bf: Forward/backward movement. Negative for backward, positive for forward.
 
     Args:
-        yaw: The yaw control value.
-        ascent: The ascent control value.
-        roll: The roll control value.
-        pitch: The pitch control value.
+        rcw: The rotation control value.
+        du: The up/down control value.
+        lr: The left/right control value.
+        bf: The forward/backward control value.
 
     Returns:
         str: A message indicating the result of the move command.
@@ -71,8 +77,8 @@ def move_drone(yaw: float, ascent: float, roll: float, pitch: float) -> str:
         with OpenDJI(DRONE_IP_ADDR) as drone:
             # Ensure drone control is enabled for movement commands
             # drone.enableControl(True) # Optional: ensure control is enabled before move
-            drone.move(yaw, ascent, roll, pitch)
-            return f"Move command sent: yaw={yaw}, ascent={ascent}, roll={roll}, pitch={pitch}"
+            drone.move(rcw, du, lr, bf)
+            return f"Move command sent: rcw={rcw}, du={du}, lr={lr}, bf={bf}"
     except Exception as e:
         return f"Error moving drone: {str(e)}"
 
@@ -124,118 +130,132 @@ def track_person_and_rotate(max_iterations: int = 30, yaw_strength: float = 0.2,
     print("Initiating automated person tracking sequence...")
     
     try:
-        # --- Takeoff --- 
-        takeoff_result = drone_takeoff()
-        print(f"Takeoff result: {takeoff_result}")
-        if "error" in takeoff_result.lower() or "failed" in takeoff_result.lower():
-            return f"Takeoff failed, cannot start tracking: {takeoff_result}"
-        
-        # Give a brief moment for the drone to stabilize after takeoff
-        print("Stabilizing after takeoff...")
-        time.sleep(5)
-
-        print(f"Starting person tracking for up to {max_iterations} iterations.")
-        person_sighted_in_previous_iteration = False
-        consecutive_no_person_scans = 0 # Tracks how many consecutive frames a person isn't seen after being seen
-
-        # Initialize the LLM model for image analysis
-        model = LiteLLMModel(
-            model_id="openrouter/google/gemini-2.5-pro-exp-03-25",
-            temperature=0.5,
-            max_tokens=50000
-        )
-
-        for i in range(max_iterations):
-            print(f"Tracking iteration {i+1}/{max_iterations}...")
-            current_yaw = 0.0
-            try:
-                frame_result = get_drone_frame_info()
-
-                if isinstance(frame_result, str):
-                    print(f"Could not get drone frame: {frame_result}. Skipping this iteration.")
-                    time.sleep(seconds_per_iteration)
-                    continue
-
-                agent_image = frame_result
-                pil_image = agent_image.pil_image
-
-                buffered = BytesIO()
-                pil_image.save(buffered, format="PNG")
-                img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
-
-                messages = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "Analyze this image from a drone's camera. Is a person clearly visible? If yes, in which horizontal third of the image are they primarily located: 'left', 'center', or 'right'? If no person is clearly visible, or if their location cannot be reliably determined, respond with only one word: 'left', 'center', 'right', or 'none'."},
-                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_base64}"}}
-                        ]
-                    }
-                ]
-                
-                print("Sending frame to LLM for analysis...")
-                response = model.generate(
-                    messages=messages,
-                )
-                
-                llm_output = response.choices[0].message.content.strip().lower()
-                print(f"LLM analysis result: '{llm_output}'")
-
-                if "left" in llm_output:
-                    current_yaw = -yaw_strength
-                    print(f"Person detected on the left. Yawing left (strength: {current_yaw}).")
-                    person_sighted_in_previous_iteration = True
-                    consecutive_no_person_scans = 0
-                elif "right" in llm_output:
-                    current_yaw = yaw_strength
-                    print(f"Person detected on the right. Yawing right (strength: {current_yaw}).")
-                    person_sighted_in_previous_iteration = True
-                    consecutive_no_person_scans = 0
-                elif "center" in llm_output:
-                    # current_yaw remains 0.0
-                    print("Person detected in the center. Holding position.")
-                    person_sighted_in_previous_iteration = True
-                    consecutive_no_person_scans = 0
-                else: # "none" or unexpected LLM output
-                    print("No person clearly detected by LLM.")
-                    if person_sighted_in_previous_iteration:
-                        consecutive_no_person_scans += 1
-                        if consecutive_no_person_scans <= 2:
-                            print(f"Person lost (iteration {consecutive_no_person_scans} of being lost). Holding position to re-evaluate.")
-                            # current_yaw remains 0.0
-                        else:
-                            print(f"Person lost for >2 iterations. Initiating scan.")
-                            current_yaw = scan_yaw_strength * (-1 if (consecutive_no_person_scans - 3) % 2 == 0 else 1)
-                            print(f"Scanning for person. Yaw: {current_yaw}")
-                    else:
-                        current_yaw = scan_yaw_strength * (-1 if i % 4 < 2 else 1) # Broader scan pattern: L, L, R, R
-                        print(f"No person sighted previously. Scanning. Yaw: {current_yaw}")
-                    
-                    if not ("left" in llm_output or "right" in llm_output or "center" in llm_output): # If truly "none"
-                        person_sighted_in_previous_iteration = False
-
-
-                if current_yaw != 0.0:
-                    move_result = move_drone(yaw=current_yaw, ascent=0, roll=0, pitch=0)
-                    print(f"Move command result: {move_result}")
-                else:
-                    print("No yaw adjustment needed for this iteration.")
-
-            except Exception as e:
-                print(f"Error in tracking iteration {i+1}: {str(e)}")
+        # Open a single persistent connection to the drone
+        with OpenDJI(DRONE_IP_ADDR) as drone:
+            # --- Takeoff --- 
+            print("Sending takeoff command...")
+            takeoff_result = drone.takeoff(True)
+            print(f"Takeoff result: {takeoff_result}")
+            if "error" in str(takeoff_result).lower() or "failed" in str(takeoff_result).lower():
+                return f"Takeoff failed, cannot start tracking: {takeoff_result}"
             
-            print(f"Waiting for {seconds_per_iteration} seconds before next iteration...")
-            time.sleep(seconds_per_iteration)
+            # Give a brief moment for the drone to stabilize after takeoff
+            print("Stabilizing after takeoff...")
+            time.sleep(5)
 
-        return f"Person tracking completed after {max_iterations} iterations."
+            print(f"Starting person tracking for up to {max_iterations} iterations.")
+            person_sighted_in_previous_iteration = False
+            consecutive_no_person_scans = 0 # Tracks how many consecutive frames a person isn't seen after being seen
+
+            for i in range(max_iterations):
+                print(f"Tracking iteration {i+1}/{max_iterations}...")
+                current_yaw = 0.0
+                try:
+                    # Get frame directly from the drone instance
+                    frame_np = drone.getFrame()
+                    
+                    if frame_np is None:
+                        print("No frame available from the drone. Skipping this iteration.")
+                        time.sleep(seconds_per_iteration)
+                        continue
+
+                    # Convert NumPy array to PIL Image
+                    pil_image = Image.fromarray(frame_np.astype(np.uint8))
+                    
+                    # Create an AgentImage for consistency with previous code
+                    agent_image = AgentImage(pil_image)
+
+                    buffered = BytesIO()
+                    pil_image.save(buffered, format="PNG")
+                    img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+                    # Using OpenAI for image analysis instead of LiteLLM
+                    print("Sending frame to OpenAI for analysis...")
+                    response = openai_client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": "Analyze this image from a drone's camera. Is a person clearly visible? If yes, in which horizontal third of the image are they primarily located: 'left', 'center', or 'right'? If no person is clearly visible, or if their location cannot be reliably determined, respond with only one word: 'left', 'center', 'right', or 'none'."},
+                                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_base64}"}}
+                                ]
+                            }
+                        ],
+                        max_tokens=300,
+                    )
+                    
+                    llm_output = response.choices[0].message.content.strip().lower()
+                    print(f"OpenAI analysis result: '{llm_output}'")
+
+                    if "left" in llm_output:
+                        current_yaw = -yaw_strength
+                        print(f"Person detected on the left. Yawing left (strength: {current_yaw}).")
+                        person_sighted_in_previous_iteration = True
+                        consecutive_no_person_scans = 0
+                    elif "right" in llm_output:
+                        current_yaw = yaw_strength
+                        print(f"Person detected on the right. Yawing right (strength: {current_yaw}).")
+                        person_sighted_in_previous_iteration = True
+                        consecutive_no_person_scans = 0
+                    elif "center" in llm_output:
+                        # current_yaw remains 0.0
+                        print("Person detected in the center. Holding position.")
+                        person_sighted_in_previous_iteration = True
+                        consecutive_no_person_scans = 0
+                    else: # "none" or unexpected LLM output
+                        print("No person clearly detected by OpenAI.")
+                        if person_sighted_in_previous_iteration:
+                            consecutive_no_person_scans += 1
+                            if consecutive_no_person_scans <= 2:
+                                print(f"Person lost (iteration {consecutive_no_person_scans} of being lost). Holding position to re-evaluate.")
+                                # current_yaw remains 0.0
+                            else:
+                                print(f"Person lost for >2 iterations. Initiating scan.")
+                                current_yaw = scan_yaw_strength * (-1 if (consecutive_no_person_scans - 3) % 2 == 0 else 1)
+                                print(f"Scanning for person. Yaw: {current_yaw}")
+                        else:
+                            current_yaw = scan_yaw_strength * (-1 if i % 4 < 2 else 1) # Broader scan pattern: L, L, R, R
+                            print(f"No person sighted previously. Scanning. Yaw: {current_yaw}")
+                        
+                        if not ("left" in llm_output or "right" in llm_output or "center" in llm_output): # If truly "none"
+                            person_sighted_in_previous_iteration = False
+
+
+                    if current_yaw != 0.0:
+                        # Move drone directly using the drone instance
+                        # Instead of a single command, continuously send the command for 2 seconds
+                        rotation_duration = 2.0  # seconds to rotate
+                        start_time = time.time()
+                        while time.time() - start_time < rotation_duration:
+                            drone.move(current_yaw, 0, 0, 0)
+                            print(f"Move command sent: rcw={current_yaw}, du=0, lr=0, bf=0")
+                            time.sleep(0.1)  # Small delay between commands
+                        print(f"Completed rotation sequence with yaw={current_yaw}")
+                    else:
+                        print("No yaw adjustment needed for this iteration.")
+
+                except Exception as e:
+                    print(f"Error in tracking iteration {i+1}: {str(e)}")
+                
+                print(f"Waiting for {seconds_per_iteration} seconds before next iteration...")
+                # Adjust wait time to account for time already spent in rotation
+                if current_yaw != 0.0:
+                    adjusted_wait = max(0.1, seconds_per_iteration - 2.0)  # Subtract rotation duration
+                    print(f"Adjusting wait time to {adjusted_wait} seconds (after rotation)")
+                    time.sleep(adjusted_wait)
+                else:
+                    time.sleep(seconds_per_iteration)
+
+            # --- Land --- 
+            print("Landing the drone...")
+            land_result = drone.land(True)
+            print(f"Landing result: {land_result}")
+            
+            return f"Person tracking completed after {max_iterations} iterations."
     except Exception as e:
         print(f"An overall error occurred during the track_person_and_rotate sequence: {e}")
         return f"Error during tracking sequence: {e}"
-    finally:
-        # --- Land --- 
-        print("Landing the drone...")
-        land_result = drone_land()
-        print(f"Landing result: {land_result}")
 
 # @tool
 # def enable_drone_sdk_control() -> str:
