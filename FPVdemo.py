@@ -41,6 +41,9 @@ BLNAK_FRAME = cv2.putText(BLANK_FRAME, "No Image", (200, 300),
 # Connect to the drone
 with OpenDJI(IP_ADDR) as drone:
 
+    result = drone.enableControl(True)
+    print(f"Enable SDK control command sent. Drone response: {result}")
+
     # Press 'x' to close the program
     print("Press 'x' to close the program")
     while not keyboard.is_pressed('x'):
