@@ -661,131 +661,143 @@ def track_person_and_rotate_yolo(max_iterations: int = 3000, seconds_per_iterati
         MOVE_DURATION = 0.05 # Duration for each micro-adjustment move
         MAX_SPEED = 1.0 # Define max speed constant
 
-        for i in range(max_iterations):
-            iteration_start_time = time.time()
-            print(f"Tracking iteration {i+1}/{max_iterations}...")
-            
-            # Reset movement commands for this iteration
-            rcw, du, lr, bf = 0.0, 0.0, 0.0, 0.0
-            person_found_this_iteration = False
-            
-            try:
-                frame_np = drone.getFrame()
-                if frame_np is None:
-                    print("No frame available. Skipping iteration.")
-                    time.sleep(seconds_per_iteration) # Wait before next try
-                    continue
+        # Wrap the main loop in a try-except block to catch KeyboardInterrupt
+        try:
+            for i in range(max_iterations):
+                iteration_start_time = time.time()
+                print(f"Tracking iteration {i+1}/{max_iterations}...")
+                
+                # Reset movement commands for this iteration
+                rcw, du, lr, bf = 0.0, 0.0, 0.0, 0.0
+                person_found_this_iteration = False
+                
+                try:
+                    frame_np = drone.getFrame()
+                    if frame_np is None:
+                        print("No frame available. Skipping iteration.")
+                        time.sleep(seconds_per_iteration) # Wait before next try
+                        continue
 
-                H, W, _ = frame_np.shape
-                center_x = W / 2.0
-                # center_y = H / 2.0 # Not used for control logic yet
+                    H, W, _ = frame_np.shape
+                    center_x = W / 2.0
+                    # center_y = H / 2.0 # Not used for control logic yet
 
-                # Analyze frame using existing function, we need the results object
-                yolo_results_obj, yolo_summary = analyze_image_with_yolo(frame_np)
+                    # Analyze frame using existing function, we need the results object
+                    yolo_results_obj, yolo_summary = analyze_image_with_yolo(frame_np)
 
-                if yolo_results_obj and yolo_results_obj[0].boxes:
-                    best_person_box = None
-                    max_conf = 0.0
+                    if yolo_results_obj and yolo_results_obj[0].boxes:
+                        best_person_box = None
+                        max_conf = 0.0
 
-                    # Find the most confident 'person' detection
-                    for box in yolo_results_obj[0].boxes:
-                        class_id = int(box.cls[0])
-                        conf = float(box.conf[0])
-                        class_name = yolo_model.names[class_id]
+                        # Find the most confident 'person' detection
+                        for box in yolo_results_obj[0].boxes:
+                            class_id = int(box.cls[0])
+                            conf = float(box.conf[0])
+                            class_name = yolo_model.names[class_id]
 
-                        if class_name == 'person' and conf > max_conf:
-                            max_conf = conf
-                            best_person_box = box.xyxy[0].cpu().numpy() # Get coordinates [x1, y1, x2, y2]
-                            person_found_this_iteration = True
-                    
-                    if person_found_this_iteration:
-                        # Calculate center of the detected person
-                        x1, y1, x2, y2 = best_person_box
-                        person_cx = (x1 + x2) / 2.0
-                        # person_cy = (y1 + y2) / 2.0 # Not used yet
-
-                        # Calculate horizontal offset from center
-                        dx = person_cx - center_x
+                            if class_name == 'person' and conf > max_conf:
+                                max_conf = conf
+                                best_person_box = box.xyxy[0].cpu().numpy() # Get coordinates [x1, y1, x2, y2]
+                                person_found_this_iteration = True
                         
-                        # --- Determine Movement ---
-                        center_threshold_pixels = W * CENTER_THRESHOLD_PERCENT
+                        if person_found_this_iteration:
+                            # Calculate center of the detected person
+                            x1, y1, x2, y2 = best_person_box
+                            person_cx = (x1 + x2) / 2.0
+                            # person_cy = (y1 + y2) / 2.0 # Not used yet
 
-                        # Rotation Control
-                        if abs(dx) > center_threshold_pixels:
-                            # Target is off-center, calculate rotation
-                            rcw = MAX_SPEED if dx > 0 else -MAX_SPEED # Rotate max speed towards target
-                            print(f"  Person off-center (dx={dx:.1f}px). Rotating: rcw={rcw:.2f}")
-                        else:
-                            # Target is centered horizontally, no rotation needed
-                            rcw = 0.0
-                            print(f"  Person centered (dx={dx:.1f}px).")
+                            # Calculate horizontal offset from center
+                            dx = person_cx - center_x
+                            
+                            # --- Determine Movement ---
+                            center_threshold_pixels = W * CENTER_THRESHOLD_PERCENT
 
-                        # Forward Movement Control
-                        if abs(dx) <= center_threshold_pixels:
-                             # Only move forward if horizontally centered
-                            bf = MAX_SPEED # Move forward at max speed
-                            print(f"  Moving forward: bf={bf:.2f}")
-                        else:
-                            # Don't move forward if rotating significantly
-                            bf = 0.0
+                            # Rotation Control
+                            if abs(dx) > center_threshold_pixels:
+                                # Target is off-center, calculate rotation
+                                rcw = MAX_SPEED if dx > 0 else -MAX_SPEED # Rotate max speed towards target
+                                print(f"  Person off-center (dx={dx:.1f}px). Rotating: rcw={rcw:.2f}")
+                            else:
+                                # Target is centered horizontally, no rotation needed
+                                rcw = 0.0
+                                print(f"  Person centered (dx={dx:.1f}px).")
 
-                        # Keep vertical and sideways movement zero
+                            # Forward Movement Control
+                            if abs(dx) <= center_threshold_pixels:
+                                 # Only move forward if horizontally centered
+                                bf = MAX_SPEED # Move forward at max speed
+                                print(f"  Moving forward: bf={bf:.2f}")
+                            else:
+                                # Don't move forward if rotating significantly
+                                bf = 0.0
+
+                            # Keep vertical and sideways movement zero
+                            du = 0.0
+                            lr = 0.0
+                        
+                    if not person_found_this_iteration:
+                        print("  No person detected this frame. Rotating to scan...")
+                        # Keep rcw, du, lr, bf at 0.0 (holding position)
+                        # Set rotation speed for scanning
+                        rcw = MAX_SPEED # Scan clockwise at max speed
+                        bf = 0.0
                         du = 0.0
                         lr = 0.0
-                    
-                if not person_found_this_iteration:
-                    print("  No person detected this frame. Rotating to scan...")
-                    # Keep rcw, du, lr, bf at 0.0 (holding position)
-                    # Set rotation speed for scanning
-                    rcw = MAX_SPEED # Scan clockwise at max speed
-                    bf = 0.0
-                    du = 0.0
-                    lr = 0.0
 
-                # --- Execute Movement ---
-                if rcw != 0.0 or bf != 0.0: # Only send move command if needed
-                    print(f"  Executing move: rcw={rcw:.2f}, bf={bf:.2f} for {MOVE_DURATION:.2f}s")
-                    drone.move(0, 0, 0, 0) 
-                    drone.move(rcw, du, lr, bf)
-                    time.sleep(MOVE_DURATION)
-                else:
-                    # No movement needed, just wait out the rest of the iteration time
-                    pass
+                    # --- Execute Movement ---
+                    if rcw != 0.0 or bf != 0.0: # Only send move command if needed
+                        print(f"  Executing move: rcw={rcw:.2f}, bf={bf:.2f} for {MOVE_DURATION:.2f}s")
+                        drone.move(0, 0, 0, 0) 
+                        drone.move(rcw, du, lr, bf)
+                        time.sleep(MOVE_DURATION)
+                    else:
+                        # No movement needed, just wait out the rest of the iteration time
+                        pass
 
-            except Exception as e:
-                print(f"Error in YOLO tracking iteration {i+1}: {str(e)}")
-                # Stop movement in case of error during processing/move
-                try:
-                    drone.move(0, 0, 0, 0)
-                except Exception as stop_e:
-                    print(f"Error stopping drone after iteration error: {stop_e}")
+                except Exception as e:
+                    print(f"Error in YOLO tracking iteration {i+1}: {str(e)}")
+                    # Stop movement in case of error during processing/move
+                    try:
+                        drone.move(0, 0, 0, 0)
+                    except Exception as stop_e:
+                        print(f"Error stopping drone after iteration error: {stop_e}")
 
-            # # --- Iteration Timing ---
-            # iteration_end_time = time.time()
-            # processing_time = iteration_end_time - iteration_start_time
-            # wait_time = seconds_per_iteration - processing_time
-            
-            # if wait_time > 0:
-            #     # print(f"  Processing took {processing_time:.3f}s. Waiting {wait_time:.3f}s...")
-            #     time.sleep(wait_time)
-            # # else:
-            # #     print(f"  Iteration {i+1} took {processing_time:.3f}s (longer than target {seconds_per_iteration:.3f}s). Proceeding immediately.")
+                # # --- Iteration Timing ---
+                # iteration_end_time = time.time()
+                # processing_time = iteration_end_time - iteration_start_time
+                # wait_time = seconds_per_iteration - processing_time
+                
+                # if wait_time > 0:
+                #     # print(f"  Processing took {processing_time:.3f}s. Waiting {wait_time:.3f}s...")
+                #     time.sleep(wait_time)
+                # # else:
+                # #     print(f"  Iteration {i+1} took {processing_time:.3f}s (longer than target {seconds_per_iteration:.3f}s). Proceeding immediately.")
 
+            print("Max iterations reached or tracking stopped.")
+            # --- Land ---
+            print("Landing the drone...")
+            drone.move(0, 0, 0, 0) 
+            land_result = drone.land(True)
+            print(f"Landing result: {land_result}")
+            return f"YOLO person tracking completed after {i + 1} iterations." # Use i + 1 for actual iterations run
 
-        print("Max iterations reached or tracking stopped.")
-        # --- Land ---
-        print("Landing the drone...")
-        land_result = drone.land(True)
-        print(f"Landing result: {land_result}")
-
-        return f"YOLO person tracking completed after {max_iterations} iterations."
+        except KeyboardInterrupt:
+            print("User interrupted (Ctrl+C). Landing the drone...")
+            try:
+                drone.move(0, 0, 0, 0) # Stop any active movement
+                land_result = drone.land(True)
+                print(f"Landing result: {land_result}")
+            except Exception as e_land:
+                print(f"Error during landing after interruption: {e_land}")
+            return "YOLO person tracking interrupted by user. Drone landed."
 
     except Exception as e:
         print(f"An overall error occurred during the YOLO track_person sequence: {e}")
         # Attempt to land in case of unexpected top-level error
         try:
             print("Attempting emergency land...")
-            drone_connection.land(True)
+            drone.move(0, 0, 0, 0) 
+            drone.land(True)
         except Exception as land_e:
             print(f"Failed to execute emergency land: {land_e}")
         return f"Error during YOLO tracking sequence: {e}"
