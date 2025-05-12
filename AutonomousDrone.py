@@ -760,16 +760,16 @@ def track_person_and_rotate_yolo(max_iterations: int = 3000, seconds_per_iterati
                 except Exception as stop_e:
                     print(f"Error stopping drone after iteration error: {stop_e}")
 
-            # --- Iteration Timing ---
-            iteration_end_time = time.time()
-            processing_time = iteration_end_time - iteration_start_time
-            wait_time = seconds_per_iteration - processing_time
+            # # --- Iteration Timing ---
+            # iteration_end_time = time.time()
+            # processing_time = iteration_end_time - iteration_start_time
+            # wait_time = seconds_per_iteration - processing_time
             
-            if wait_time > 0:
-                # print(f"  Processing took {processing_time:.3f}s. Waiting {wait_time:.3f}s...")
-                time.sleep(wait_time)
-            # else:
-            #     print(f"  Iteration {i+1} took {processing_time:.3f}s (longer than target {seconds_per_iteration:.3f}s). Proceeding immediately.")
+            # if wait_time > 0:
+            #     # print(f"  Processing took {processing_time:.3f}s. Waiting {wait_time:.3f}s...")
+            #     time.sleep(wait_time)
+            # # else:
+            # #     print(f"  Iteration {i+1} took {processing_time:.3f}s (longer than target {seconds_per_iteration:.3f}s). Proceeding immediately.")
 
 
         print("Max iterations reached or tracking stopped.")
