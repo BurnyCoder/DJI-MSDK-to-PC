@@ -138,6 +138,128 @@ def move_drone(rcw: float, du: float, lr: float, bf: float) -> str:
         return f"Error moving drone: {str(e)}"
 
 @tool
+def move_forward_one_meter() -> str:
+    """
+    Commands the drone to move forward approximately one meter.
+
+    Note: The actual distance is an estimate based on a fixed duration and speed.
+    It might vary depending on drone model, battery, and environmental conditions.
+
+    Returns:
+        str: A message indicating the result of the command.
+    """
+    global drone_connection
+    if drone_connection is None:
+        initialize_drone_connection()
+        if drone_connection is None:
+            return "Error: Drone connection not established. Cannot move forward."
+
+    FORWARD_SPEED = 1 # Speed value between 0.0 and 1.0
+    FORWARD_DURATION = 3 # Estimated duration in seconds to cover 1 meter at FORWARD_SPEED
+
+    try:
+        result = drone_connection.enableControl(True)
+        print(f"Enable SDK control command sent. Drone response: {result}")
+        # --- Takeoff --- 
+        print("Sending takeoff command...")
+        takeoff_result = drone_connection.takeoff(True)
+        print(f"Takeoff result: {takeoff_result}")
+        if "error" in str(takeoff_result).lower() or "failed" in str(takeoff_result).lower():
+            return f"Takeoff failed, cannot start tracking: {takeoff_result}"
+        
+        # Give a brief moment for the drone to stabilize after takeoff
+        print("Stabilizing after takeoff...")
+        time.sleep(10)
+
+        print(f"Attempting to move forward for {FORWARD_DURATION}s at speed {FORWARD_SPEED}...")
+
+        # Start moving forward
+        drone_connection.move(rcw=0.0, du=0.0, lr=0.0, bf=FORWARD_SPEED)
+        time.sleep(FORWARD_DURATION)
+
+        # Stop moving
+        drone_connection.move(rcw=0.0, du=0.0, lr=0.0, bf=0.0)
+        print("Movement stopped.")
+
+        time.sleep(1)
+
+        drone_connection.land(True)
+
+        # Optionally disable control if preferred after each discrete action
+        # disable_result = drone_connection.disableControl(True)
+        # print(f"Disable SDK control command sent. Drone response: {disable_result}")
+
+        return f"Move forward command executed for {FORWARD_DURATION} seconds."
+    except Exception as e:
+        # Ensure movement stops in case of error during sleep
+        try:
+            drone_connection.move(rcw=0.0, du=0.0, lr=0.0, bf=0.0)
+        except Exception as stop_e:
+            print(f"Error stopping drone after move error: {stop_e}")
+        return f"Error moving forward: {str(e)}"
+
+@tool
+def rotate_90_degrees_clockwise() -> str:
+    """
+    Commands the drone to rotate approximately 90 degrees clockwise.
+
+    Note: The actual angle is an estimate based on a fixed duration and rotation speed.
+    It might vary depending on drone model, battery, and environmental conditions.
+
+    Returns:
+        str: A message indicating the result of the command.
+    """
+    global drone_connection
+    if drone_connection is None:
+        initialize_drone_connection()
+        if drone_connection is None:
+            return "Error: Drone connection not established. Cannot rotate."
+
+    ROTATION_SPEED = 1 # Rotation speed value between 0.0 and 1.0
+    ROTATION_DURATION = 1.5 # Estimated duration in seconds for 90 degrees at ROTATION_SPEED
+
+    try:
+        result = drone_connection.enableControl(True)
+        print(f"Enable SDK control command sent. Drone response: {result}")
+        # --- Takeoff --- 
+        print("Sending takeoff command...")
+        takeoff_result = drone_connection.takeoff(True)
+        print(f"Takeoff result: {takeoff_result}")
+        if "error" in str(takeoff_result).lower() or "failed" in str(takeoff_result).lower():
+            return f"Takeoff failed, cannot start tracking: {takeoff_result}"
+        
+        # Give a brief moment for the drone to stabilize after takeoff
+        print("Stabilizing after takeoff...")
+        time.sleep(10)
+
+        print(f"Attempting to rotate clockwise for {ROTATION_DURATION}s at speed {ROTATION_SPEED}...")
+
+        # Start rotating
+        drone_connection.move(rcw=-ROTATION_SPEED, du=0.0, lr=0.0, bf=0.0)
+        time.sleep(ROTATION_DURATION)
+
+        # Stop rotating
+        drone_connection.move(rcw=0.0, du=0.0, lr=0.0, bf=0.0)
+        print("Rotation stopped.")
+
+        time.sleep(1)
+
+        drone_connection.land(True)
+
+        # Optionally disable control
+        # disable_result = drone_connection.disableControl(True)
+        # print(f"Disable SDK control command sent. Drone response: {disable_result}")
+
+        return f"Rotate clockwise command executed for {ROTATION_DURATION} seconds."
+    except Exception as e:
+        # Ensure rotation stops in case of error during sleep
+        try:
+            drone_connection.move(rcw=0.0, du=0.0, lr=0.0, bf=0.0)
+        except Exception as stop_e:
+            print(f"Error stopping drone after rotate error: {stop_e}")
+        return f"Error rotating clockwise: {str(e)}"
+
+@tool
 def get_drone_frame_info() -> AgentImage:
     """
     Retrieves the current video frame from the drone as an AgentImage.
@@ -174,19 +296,18 @@ def get_drone_frame_info() -> AgentImage:
         return f"Error getting drone frame info: {str(e)}"
 
 @tool
-def track_person_and_rotate(max_iterations: int = 30, yaw_strength: float = 0.2, scan_yaw_strength: float = 0.015, seconds_per_iteration: float = 2.5, rotation_pulse_duration: float = 1.25) -> str:
+def track_person_and_rotate(max_iterations: int = 30, seconds_per_iteration: float = 1) -> str:
     """
-    Commands the drone to take off, then continuously looks for a person in the drone's video feed and rotates the drone to keep the person centered.
-    Does not move the drone forward/backward/sideways or up/down during tracking.
-    Rotation is applied in pulses. Finally, commands the drone to land.
+    Commands the drone to take off, then continuously uses OpenAI's vision model
+    to analyze the video feed and determine appropriate movements (rotation,
+    forward/backward, up/down, left/right) and their duration to track a person.
+    If no person is detected, it asks the model for scanning or holding maneuvers.
+    Finally, commands the drone to land.
 
     Args:
         max_iterations: The maximum number of tracking attempts.
-        yaw_strength: The magnitude of yaw rotation when a person is detected off-center.
-        scan_yaw_strength: The magnitude of yaw rotation when scanning for a person if not found.
-        seconds_per_iteration: The target total cycle time for each iteration (includes processing, potential rotation, and waiting).
-        rotation_pulse_duration: The duration (in seconds) for which the drone actively rotates before stopping, when a yaw adjustment is made.
-    
+        seconds_per_iteration: The target total cycle time for each iteration (includes processing, potential movement, and waiting). Minimum time between analyses.
+
     Returns:
         str: A message indicating the result of the tracking sequence.
     """
@@ -213,7 +334,7 @@ def track_person_and_rotate(max_iterations: int = 30, yaw_strength: float = 0.2,
         
         # Give a brief moment for the drone to stabilize after takeoff
         print("Stabilizing after takeoff...")
-        time.sleep(5)
+        time.sleep(10)
 
         print(f"Starting person tracking for up to {max_iterations} iterations.")
         person_sighted_in_previous_iteration = False
@@ -221,7 +342,8 @@ def track_person_and_rotate(max_iterations: int = 30, yaw_strength: float = 0.2,
 
         for i in range(max_iterations):
             print(f"Tracking iteration {i+1}/{max_iterations}...")
-            current_yaw = 0.0
+            # Initialize movement parameters for this iteration
+            current_rcw, current_du, current_lr, current_bf, current_duration = 0.0, 0.0, 0.0, 0.0, 0.0
             iteration_logic_start_time = time.time()
 
             try:
@@ -243,72 +365,108 @@ def track_person_and_rotate(max_iterations: int = 30, yaw_strength: float = 0.2,
                 pil_image.save(buffered, format="PNG")
                 img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-                # Using OpenAI for image analysis instead of LiteLLM
-                print("Sending frame to OpenAI for analysis...")
+                # Determine context for the LLM
+                if person_sighted_in_previous_iteration:
+                    state_context = "A person was visible in the last frame. Continue tracking."
+                elif consecutive_no_person_scans > 0:
+                    state_context = f"A person was visible previously but has been lost for {consecutive_no_person_scans} frame(s). Decide whether to scan or hold position."
+                else:
+                    state_context = "No person has been sighted recently. Scan for a person or hold position."
+
+                # Using OpenAI for image analysis and movement decisions
+                print(f"Sending frame to OpenAI for analysis ({state_context})...")
+                prompt = f"""Analyze this image from a drone's camera. Context: {state_context}
+Instructions:
+1. Determine if a person is clearly visible (Yes/No).
+2. Provide drone movement commands (`rotation` for rotation, `move` for forward/backward) and `duration` (seconds).
+   - If Visible: Yes, provide `rotation` to turn towards the person and `move` (positive value, 0.0 to 1.0) to move forward.
+   - If Visible: No, provide `rotation` (non-zero) to scan for the person. Keep `move` at 0.0.
+   - `rotation` range: -1.0 (rotate left) to 1.0 (rotate right).
+   - `move` range: 0.0 to 1.0 (only forward movement considered).
+   - `duration` range: 0.0 to 5.0 seconds (how long to apply the movement).
+Response Format:
+Respond ONLY in the format: "Visible: [Yes/No], rotation: [float], move: [float], duration: [float]"
+
+Examples:
+- Person centered, move forward (1 meter): "Visible: Yes, rotation: 0.0, move: 1.0, duration: 3.0"
+- Person slightly right, move forward: "Visible: Yes, rotation: 0.1, move: 1.0, duration: 3.0"
+- No person, scan right (approx 90 degrees clockwise): "Visible: No, rotation: -1.0, move: 0.0, duration: 1.5"
+- No person, scan left (approx 90 degrees anti-clockwise): "Visible: No, rotation: 1.0, move: 0.0, duration: 1.5" """
+
                 response = openai_client.chat.completions.create(
                     model="gpt-4o",
                     messages=[
                         {
                             "role": "user",
                             "content": [
-                                {"type": "text", "text": "Analyze this image from a drone's camera. Is a person clearly visible? If yes, in which horizontal third of the image are they primarily located: 'left', 'center', or 'right'? If no person is clearly visible, or if their location cannot be reliably determined, respond with only one word: 'left', 'center', 'right', or 'none'."},
+                                {"type": "text", "text": prompt},
                                 {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_base64}"}}
                             ]
                         }
                     ],
-                    max_tokens=300,
                 )
-                
-                llm_output = response.choices[0].message.content.strip().lower()
+
+                llm_output = response.choices[0].message.content.strip()
                 print(f"OpenAI analysis result: '{llm_output}'")
 
-                if "left" in llm_output:
-                    current_yaw = -yaw_strength
-                    print(f"Person detected on the left. Yawing left (strength: {current_yaw}).")
-                    person_sighted_in_previous_iteration = True
-                    consecutive_no_person_scans = 0
-                elif "right" in llm_output:
-                    current_yaw = yaw_strength
-                    print(f"Person detected on the right. Yawing right (strength: {current_yaw}).")
-                    person_sighted_in_previous_iteration = True
-                    consecutive_no_person_scans = 0
-                elif "center" in llm_output:
-                    # current_yaw remains 0.0
-                    print("Person detected in the center. Holding position.")
-                    person_sighted_in_previous_iteration = True
-                    consecutive_no_person_scans = 0
-                    # Move forward if person is in the center
-                    print(f"Moving forward towards person (strength: 0.1) for {rotation_pulse_duration}s...")
-                    drone.move(0, 0, 0, 0.1) # bf = 0.1 for forward
-                    time.sleep(rotation_pulse_duration)
-                    drone.move(0, 0, 0, 0) # Stop forward movement
-                else: # "none" or unexpected LLM output
-                    print("No person clearly detected by OpenAI.")
-                    if person_sighted_in_previous_iteration:
-                        consecutive_no_person_scans += 1
-                        if consecutive_no_person_scans <= 2:
-                            print(f"Person lost (iteration {consecutive_no_person_scans} of being lost). Holding position to re-evaluate.")
-                            # current_yaw remains 0.0
-                        else:
-                            print(f"Person lost for >2 iterations. Initiating scan.")
-                            current_yaw = scan_yaw_strength * (-1 if (consecutive_no_person_scans - 3) % 2 == 0 else 1)
-                            print(f"Scanning for person. Yaw: {current_yaw}")
-                    else:
-                        current_yaw = scan_yaw_strength * (-1 if i % 4 < 2 else 1) # Broader scan pattern: L, L, R, R
-                        print(f"No person sighted previously. Scanning. Yaw: {current_yaw}")
-                    
-                    if not ("left" in llm_output or "right" in llm_output or "center" in llm_output): # If truly "none"
-                        person_sighted_in_previous_iteration = False
+                # Parse the structured response
+                is_visible = False
+                try:
+                    # Example: "Visible: Yes, rotation: 0.15, move: 0.1, duration: 1.5"
+                    parts = llm_output.split(',')
+                    visible_part = parts[0].split(':')[1].strip().lower()
+                    rotation_part = parts[1].split(':')[1].strip()
+                    move_part = parts[2].split(':')[1].strip()
+                    duration_part = parts[3].split(':')[1].strip()
 
-                if current_yaw != 0.0:
-                    # Move drone directly using the drone instance
-                    print(f"Executing pulsed rotation: rcw={current_yaw} for {rotation_pulse_duration}s...")
-                    drone.move(current_yaw, 0, 0, 0) # Start rotation
-                    time.sleep(rotation_pulse_duration) # Rotate for the specified pulse duration
-                    print("Stopping rotation.")
-                    drone.move(0, 0, 0, 0) # Stop rotation
+                    if visible_part == 'yes':
+                        is_visible = True
+                    
+                    current_rcw = max(-1.0, min(1.0, float(rotation_part))) # Assign rotation to rcw
+                    current_bf = max(0.0, min(1.0, float(move_part)))     # Assign move to bf
+                    current_duration = max(0.0, float(duration_part))     # Ensure duration is non-negative
+                    
+                    # Hardcode du and lr to 0.0
+                    current_du = 0.0
+                    current_lr = 0.0
+
+                except Exception as parse_error:
+                    print(f"Warning: Could not parse OpenAI response '{llm_output}'. Error: {parse_error}. Holding position.")
+                    is_visible = False
+                    current_rcw, current_du, current_lr, current_bf, current_duration = 0.0, 0.0, 0.0, 0.0, 0.0
+
+                # Update state for next iteration's context
+                if is_visible:
+                    print(f"Person detected. LLM suggests move: rotation={current_rcw:.2f}, move={current_bf:.2f}, duration={current_duration:.2f}s (vertical/sideways hardcoded to 0.0)")
+                    person_sighted_in_previous_iteration = True
+                    consecutive_no_person_scans = 0
                 else:
-                    print("No yaw adjustment needed for this iteration.")
+                    if person_sighted_in_previous_iteration:
+                         print("Person lost.")
+                         consecutive_no_person_scans = 1
+                    elif consecutive_no_person_scans > 0:
+                         print(f"Person still not found (lost for {consecutive_no_person_scans + 1} frames).")
+                         consecutive_no_person_scans += 1
+                    else:
+                         print("No person detected.")
+                         
+                    person_sighted_in_previous_iteration = False
+                    
+                    if current_duration > 0:
+                        print(f"LLM suggests action (scan/hold): rotation={current_rcw:.2f}, move={current_bf:.2f}, duration={current_duration:.2f}s (vertical/sideways hardcoded to 0.0)")
+                    else:
+                        print("LLM suggests holding position.")
+
+
+                # Apply movement if duration is positive
+                if current_duration > 0:
+                    print(f"Executing LLM-defined movement for {current_duration:.2f}s...")
+                    drone.move(current_rcw, current_du, current_lr, current_bf) # Apply LLM command
+                    time.sleep(current_duration) # Move for the LLM-specified duration
+                    print("Stopping movement.")
+                    drone.move(0, 0, 0, 0) # Stop all movement
+                else:
+                    print("No movement adjustment needed for this iteration (duration is 0).")
 
             except Exception as e:
                 print(f"Error in tracking iteration {i+1}: {str(e)}")
@@ -320,7 +478,7 @@ def track_person_and_rotate(max_iterations: int = 30, yaw_strength: float = 0.2,
             
             if remaining_wait_time > 0:
                 print(f"Waiting for {remaining_wait_time:.2f} seconds before next iteration's processing...")
-                time.sleep(remaining_wait_time)
+                #time.sleep(remaining_wait_time)
             else:
                 print(f"Iteration logic (processing/movement) took {time_spent_in_iteration_logic:.2f}s. Proceeding to next iteration immediately.")
 
@@ -384,6 +542,8 @@ class AutonomousDroneAgent:
                 drone_takeoff,
                 drone_land,
                 move_drone,
+                move_forward_one_meter,
+                rotate_90_degrees_clockwise,
                 get_drone_frame_info,
                 #track_person_and_rotate,
                 # enable_drone_sdk_control,
@@ -425,26 +585,25 @@ if __name__ == "__main__":
             agent_instance = AutonomousDroneAgent()
             print("Autonomous Drone Agent Initialized.")
             
-            # Option 1: Use the agent to run queries
-            print("\nOption 1: You can run queries against the agent instance. For example:")
-            print("  response = agent_instance.run_query('Take off the drone.')")
-            print("  print(response)")
-            
-            # Option 2: Directly use the person tracking function
-            print("\nOption 2: Or directly use the person tracking function:")
-            print("  result = track_person_and_rotate()")
-            print("  print(result)")
-            
             # Uncomment one of these to test (requires drone connection)
             print("\n--- Running Example ---")
 
-            # Option 1 example:
-            # query = "Get drone frame info."
-            # agent_instance.run_query(query)
-            
+            # Example: Move forward and rotate
+            # print("\n--- Running Example: Move Forward ---")
+            # move_forward_one_meter()
+
+            # print("\n--- Running Example: Rotate ---")
+            #rotate_90_degrees_clockwise()
+
             # Option 2 example:
+            print("\n--- Running Example: Person Tracking ---")
             result = track_person_and_rotate(max_iterations=100000)
-            # print(result)
+            print(result)
+
+            # Option 3 example:
+            # print("\n--- Running Example: Query Agent ---")
+            # response = agent_instance.run_query("Take off the drone and find a person.")
+            # print(response)
 
     except ValueError as ve:
         print(f"Initialization Error: {ve}")
