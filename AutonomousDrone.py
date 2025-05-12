@@ -652,7 +652,7 @@ def track_person_and_rotate_yolo(max_iterations: int = 3000, seconds_per_iterati
             return f"Takeoff failed, cannot start tracking: {takeoff_result}"
 
         print("Stabilizing after takeoff...")
-        time.sleep(5) # Shorter stabilization than LLM version potentially
+        time.sleep(10) # Shorter stabilization than LLM version potentially
 
         print(f"Starting YOLO person tracking for up to {max_iterations} iterations.")
         
