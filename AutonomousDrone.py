@@ -876,9 +876,9 @@ if __name__ == "__main__":
             #rotate_90_degrees_clockwise()
 
             # Option 2 example:
-            print("\n--- Running Example: Person Tracking ---")
-            result = track_person_and_rotate_llm(max_iterations=100000)
-            print(result)
+            # print("\n--- Running Example: Person Tracking ---")
+            # result = track_person_and_rotate_llm(max_iterations=100000)
+            # print(result)
 
             # Option 3 example:
             # print("\n--- Running Example: Query Agent ---")
