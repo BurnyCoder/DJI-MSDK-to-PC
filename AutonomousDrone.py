@@ -9,6 +9,9 @@ import base64 # Added for image encoding
 from io import BytesIO # Added for image encoding
 from openai import OpenAI # Added for OpenAI API
 import atexit # Added for graceful connection closing
+import cv2 # Added for image processing with YOLO
+from ultralytics import YOLO # Added for YOLO object detection
+import json # Added for handling YOLO model info (potentially)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -25,6 +28,8 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 # --- Global Drone Connection ---
 drone_connection = None
+# --- Global YOLO Model ---
+yolo_model = None
 
 def initialize_drone_connection():
     """Initializes the global drone connection."""
@@ -60,6 +65,28 @@ def close_drone_connection():
 
 # Register the close function to be called on exit
 atexit.register(close_drone_connection)
+
+# --- YOLO Model Initialization ---
+def initialize_yolo_model():
+    """Initializes the global YOLO model."""
+    global yolo_model
+    if yolo_model is None:
+        print("Starting YOLO model initialization...")
+        try:
+            print("Attempting to load YOLO model (yolov8n.pt)...")
+            start_time = time.time()
+            # Ensure 'yolov8n.pt' is accessible in the environment where this script runs
+            yolo_model = YOLO("yolov8n.pt")
+            load_time = time.time() - start_time
+            print(f"YOLO model loaded successfully in {load_time:.2f} seconds.")
+            # Optional: Log model details if needed
+            # model_info = {"model_type": "yolov8n.pt", "task": yolo_model.task, "device": str(yolo_model.device)}
+            # print(f"YOLO model info: {json.dumps(model_info)}")
+        except Exception as e:
+            print(f"Error loading YOLO model: {e}")
+            print("Please ensure the YOLO model file (e.g., 'yolov8n.pt') is available.")
+            yolo_model = None # Ensure it's None on failure
+    return yolo_model
 
 # --- Drone Control Tools ---
 @tool
@@ -294,6 +321,97 @@ def get_drone_frame_info() -> AgentImage:
         return f"Error getting drone frame: {str(ve)}" 
     except Exception as e:
         return f"Error getting drone frame info: {str(e)}"
+
+# --- YOLO Analysis Function (Adapted from ai_processing.py) ---
+def analyze_image_with_yolo(image_frame):
+    """Analyzes an image frame using YOLO and returns results."""
+    global yolo_model
+    if yolo_model is None:
+        initialize_yolo_model()
+        if yolo_model is None:
+            return None, "Error: YOLO model not initialized."
+
+    print("Starting YOLO object detection")
+    try:
+        # Log image information for debugging
+        height, width, channels = image_frame.shape
+        print(f"Input image for YOLO: {width}x{height}x{channels}")
+
+        # Run YOLO inference
+        start_time = time.time()
+        results = yolo_model(image_frame)
+        detection_time = time.time() - start_time
+        print(f"YOLO detection completed in {detection_time:.2f} seconds")
+
+        if results and results[0].boxes:
+            # Count detected objects
+            total_objects = len(results[0].boxes)
+            print(f"YOLO detected {total_objects} objects")
+
+            # Log object classes and confidence
+            detected_classes = {}
+            for box in results[0].boxes:
+                class_id = int(box.cls[0])
+                class_name = yolo_model.names[class_id]
+                confidence = float(box.conf[0])
+
+                if class_name in detected_classes:
+                    detected_classes[class_name].append(confidence)
+                else:
+                    detected_classes[class_name] = [confidence]
+
+            detection_summary = []
+            for class_name, confidences in detected_classes.items():
+                avg_conf = sum(confidences) / len(confidences)
+                summary = f"Detected {len(confidences)}x {class_name} (avg conf: {avg_conf:.2f})"
+                print(summary)
+                detection_summary.append(summary)
+
+            return results, "\n".join(detection_summary)
+        else:
+            print("No objects detected by YOLO")
+            return None, "No objects detected by YOLO."
+    except Exception as e:
+        print(f"Error during YOLO analysis: {e}")
+        # Consider logging traceback here if needed: import traceback; traceback.print_exc()
+        return None, f"Error during YOLO analysis: {e}"
+
+@tool
+def analyze_frame_with_yolo() -> str:
+    """
+    Retrieves the current video frame from the drone and analyzes it using YOLOv8.
+
+    Returns:
+        str: A summary of detected objects or an error message.
+    """
+    global drone_connection
+    global yolo_model
+
+    # Ensure drone is connected
+    if drone_connection is None:
+        initialize_drone_connection()
+        if drone_connection is None:
+            return "Error: Drone connection not established. Cannot get frame for YOLO analysis."
+
+    # Ensure YOLO model is loaded
+    if yolo_model is None:
+        initialize_yolo_model()
+        if yolo_model is None:
+            return "Error: YOLO model failed to initialize. Cannot analyze frame."
+
+    try:
+        print("Attempting to get frame for YOLO analysis...")
+        frame_np = drone_connection.getFrame()
+        if frame_np is None:
+            return "Error: No frame available from the drone for YOLO analysis."
+
+        # Analyze the frame using the dedicated YOLO function
+        _yolo_results_obj, yolo_summary = analyze_image_with_yolo(frame_np)
+        # We return the summary string, not the full results object
+        return yolo_summary
+
+    except Exception as e:
+        return f"Error during YOLO frame analysis: {str(e)}"
 
 @tool
 def track_person_and_rotate(max_iterations: int = 30, seconds_per_iteration: float = 1) -> str:
@@ -535,6 +653,11 @@ class AutonomousDroneAgent:
             # Consider how to handle this - maybe raise an exception or log a severe warning.
             print("CRITICAL: Drone connection failed to initialize for AutonomousDroneAgent.")
 
+        # Ensure YOLO model is initialized when agent is created
+        initialize_yolo_model()
+        if yolo_model is None:
+            print("WARNING: YOLO model failed to initialize for AutonomousDroneAgent. YOLO analysis will not be available.")
+
         # Create the ToolCallingAgent with the defined drone tools
         # The tools are now defined outside the class
         self.drone_agent = ToolCallingAgent(
@@ -545,6 +668,7 @@ class AutonomousDroneAgent:
                 move_forward_one_meter,
                 rotate_90_degrees_clockwise,
                 get_drone_frame_info,
+                analyze_frame_with_yolo,
                 #track_person_and_rotate,
                 # enable_drone_sdk_control,
                 # disable_drone_sdk_control
