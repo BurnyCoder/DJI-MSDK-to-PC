@@ -414,7 +414,7 @@ def analyze_frame_with_yolo() -> str:
         return f"Error during YOLO frame analysis: {str(e)}"
 
 @tool
-def track_person_and_rotate(max_iterations: int = 30, seconds_per_iteration: float = 1) -> str:
+def track_person_and_rotate_llm(max_iterations: int = 30, seconds_per_iteration: float = 1) -> str:
     """
     Commands the drone to take off, then continuously uses OpenAI's vision model
     to analyze the video feed and determine appropriate movements (rotation,
@@ -610,30 +610,185 @@ Examples:
         print(f"An overall error occurred during the track_person_and_rotate sequence: {e}")
         return f"Error during tracking sequence: {e}"
 
-# @tool
-# def enable_drone_sdk_control() -> str:
-#     """
-#     Enables SDK control over the drone, allowing programmatic commands.
-#     This typically disables manual control from a physical remote controller.
-#     """
-#     try:
-#         with OpenDJI(DRONE_IP_ADDR) as drone:
-#             result = drone.enableControl(True)
-#             return f"Enable SDK control command sent. Drone response: {result}"
-#     except Exception as e:
-#         return f"Error enabling SDK control: {str(e)}"
+@tool
+def track_person_and_rotate_yolo(max_iterations: int = 3000, seconds_per_iteration: float = 0.2) -> str:
+    """
+    Commands the drone to take off, then continuously uses YOLO object detection
+    to find a person, calculate their position relative to the frame center,
+    and issue rotation (rcw) and forward (bf) commands to track them in real-time.
+    Finally, commands the drone to land. Aims for lower latency than LLM-based tracking.
 
-# @tool
-# def disable_drone_sdk_control() -> str:
-#     """
-#     Disables SDK control, returning control to the physical remote controller if available.
-#     """
-#     try:
-#         with OpenDJI(DRONE_IP_ADDR) as drone:
-#             result = drone.disableControl(True)
-#             return f"Disable SDK control command sent. Drone response: {result}"
-#     except Exception as e:
-#         return f"Error disabling SDK control: {str(e)}"
+    Args:
+        max_iterations: The maximum number of tracking iterations.
+        seconds_per_iteration: The target total cycle time for each iteration (includes processing, movement, waiting).
+
+    Returns:
+        str: A message indicating the result of the tracking sequence.
+    """
+    print("Initiating YOLO-based automated person tracking sequence...")
+    global drone_connection
+    global yolo_model # Ensure yolo_model is accessible
+
+    if drone_connection is None:
+        initialize_drone_connection()
+        if drone_connection is None:
+            return "Error: Drone connection not established. Cannot start tracking."
+
+    if yolo_model is None:
+        initialize_yolo_model()
+        if yolo_model is None:
+            return "Error: YOLO model not initialized. Cannot start tracking."
+
+    try:
+        drone = drone_connection
+
+        result = drone.enableControl(True)
+        print(f"Enable SDK control command sent. Drone response: {result}")
+        
+        print("Sending takeoff command...")
+        takeoff_result = drone.takeoff(True)
+        print(f"Takeoff result: {takeoff_result}")
+        if "error" in str(takeoff_result).lower() or "failed" in str(takeoff_result).lower():
+            return f"Takeoff failed, cannot start tracking: {takeoff_result}"
+
+        print("Stabilizing after takeoff...")
+        time.sleep(5) # Shorter stabilization than LLM version potentially
+
+        print(f"Starting YOLO person tracking for up to {max_iterations} iterations.")
+        
+        # --- Control Parameters ---
+        CENTER_THRESHOLD_PERCENT = 0.1 # Target horizontal center deadzone (10% of width)
+        MOVE_DURATION = 0.05 # Duration for each micro-adjustment move
+        MAX_SPEED = 1.0 # Define max speed constant
+
+        for i in range(max_iterations):
+            iteration_start_time = time.time()
+            print(f"Tracking iteration {i+1}/{max_iterations}...")
+            
+            # Reset movement commands for this iteration
+            rcw, du, lr, bf = 0.0, 0.0, 0.0, 0.0
+            person_found_this_iteration = False
+            
+            try:
+                frame_np = drone.getFrame()
+                if frame_np is None:
+                    print("No frame available. Skipping iteration.")
+                    time.sleep(seconds_per_iteration) # Wait before next try
+                    continue
+
+                H, W, _ = frame_np.shape
+                center_x = W / 2.0
+                # center_y = H / 2.0 # Not used for control logic yet
+
+                # Analyze frame using existing function, we need the results object
+                yolo_results_obj, yolo_summary = analyze_image_with_yolo(frame_np)
+
+                if yolo_results_obj and yolo_results_obj[0].boxes:
+                    best_person_box = None
+                    max_conf = 0.0
+
+                    # Find the most confident 'person' detection
+                    for box in yolo_results_obj[0].boxes:
+                        class_id = int(box.cls[0])
+                        conf = float(box.conf[0])
+                        class_name = yolo_model.names[class_id]
+
+                        if class_name == 'person' and conf > max_conf:
+                            max_conf = conf
+                            best_person_box = box.xyxy[0].cpu().numpy() # Get coordinates [x1, y1, x2, y2]
+                            person_found_this_iteration = True
+                    
+                    if person_found_this_iteration:
+                        # Calculate center of the detected person
+                        x1, y1, x2, y2 = best_person_box
+                        person_cx = (x1 + x2) / 2.0
+                        # person_cy = (y1 + y2) / 2.0 # Not used yet
+
+                        # Calculate horizontal offset from center
+                        dx = person_cx - center_x
+                        
+                        # --- Determine Movement ---
+                        center_threshold_pixels = W * CENTER_THRESHOLD_PERCENT
+
+                        # Rotation Control
+                        if abs(dx) > center_threshold_pixels:
+                            # Target is off-center, calculate rotation
+                            rcw = MAX_SPEED if dx > 0 else -MAX_SPEED # Rotate max speed towards target
+                            print(f"  Person off-center (dx={dx:.1f}px). Rotating: rcw={rcw:.2f}")
+                        else:
+                            # Target is centered horizontally, no rotation needed
+                            rcw = 0.0
+                            print(f"  Person centered (dx={dx:.1f}px).")
+
+                        # Forward Movement Control
+                        if abs(dx) <= center_threshold_pixels:
+                             # Only move forward if horizontally centered
+                            bf = MAX_SPEED # Move forward at max speed
+                            print(f"  Moving forward: bf={bf:.2f}")
+                        else:
+                            # Don't move forward if rotating significantly
+                            bf = 0.0
+
+                        # Keep vertical and sideways movement zero
+                        du = 0.0
+                        lr = 0.0
+                    
+                if not person_found_this_iteration:
+                    print("  No person detected this frame. Rotating to scan...")
+                    # Keep rcw, du, lr, bf at 0.0 (holding position)
+                    # Set rotation speed for scanning
+                    rcw = MAX_SPEED # Scan clockwise at max speed
+                    bf = 0.0
+                    du = 0.0
+                    lr = 0.0
+
+                # --- Execute Movement ---
+                if rcw != 0.0 or bf != 0.0: # Only send move command if needed
+                    print(f"  Executing move: rcw={rcw:.2f}, bf={bf:.2f} for {MOVE_DURATION:.2f}s")
+                    drone.move(rcw, du, lr, bf)
+                    time.sleep(MOVE_DURATION)
+                    drone.move(0, 0, 0, 0) # Stop movement after duration
+                else:
+                    # No movement needed, just wait out the rest of the iteration time
+                    pass
+
+            except Exception as e:
+                print(f"Error in YOLO tracking iteration {i+1}: {str(e)}")
+                # Stop movement in case of error during processing/move
+                try:
+                    drone.move(0, 0, 0, 0)
+                except Exception as stop_e:
+                    print(f"Error stopping drone after iteration error: {stop_e}")
+
+            # --- Iteration Timing ---
+            iteration_end_time = time.time()
+            processing_time = iteration_end_time - iteration_start_time
+            wait_time = seconds_per_iteration - processing_time
+            
+            if wait_time > 0:
+                # print(f"  Processing took {processing_time:.3f}s. Waiting {wait_time:.3f}s...")
+                time.sleep(wait_time)
+            # else:
+            #     print(f"  Iteration {i+1} took {processing_time:.3f}s (longer than target {seconds_per_iteration:.3f}s). Proceeding immediately.")
+
+
+        print("Max iterations reached or tracking stopped.")
+        # --- Land ---
+        print("Landing the drone...")
+        land_result = drone.land(True)
+        print(f"Landing result: {land_result}")
+
+        return f"YOLO person tracking completed after {max_iterations} iterations."
+
+    except Exception as e:
+        print(f"An overall error occurred during the YOLO track_person sequence: {e}")
+        # Attempt to land in case of unexpected top-level error
+        try:
+            print("Attempting emergency land...")
+            drone_connection.land(True)
+        except Exception as land_e:
+            print(f"Failed to execute emergency land: {land_e}")
+        return f"Error during YOLO tracking sequence: {e}"
 
 class AutonomousDroneAgent:
     def __init__(self):
@@ -669,7 +824,8 @@ class AutonomousDroneAgent:
                 rotate_90_degrees_clockwise,
                 get_drone_frame_info,
                 analyze_frame_with_yolo,
-                #track_person_and_rotate,
+                track_person_and_rotate_llm,
+                track_person_and_rotate_yolo,
                 # enable_drone_sdk_control,
                 # disable_drone_sdk_control
             ],
@@ -721,13 +877,18 @@ if __name__ == "__main__":
 
             # Option 2 example:
             print("\n--- Running Example: Person Tracking ---")
-            result = track_person_and_rotate(max_iterations=100000)
+            result = track_person_and_rotate_llm(max_iterations=100000)
             print(result)
 
             # Option 3 example:
             # print("\n--- Running Example: Query Agent ---")
             # response = agent_instance.run_query("Take off the drone and find a person.")
             # print(response)
+
+            # Option 4 example: YOLO Tracking
+            print("\n--- Running Example: YOLO Person Tracking ---")
+            result_yolo = track_person_and_rotate_yolo(max_iterations=1000) # Example: 1000 iterations
+            print(result_yolo)
 
     except ValueError as ve:
         print(f"Initialization Error: {ve}")
