@@ -745,9 +745,9 @@ def track_person_and_rotate_yolo(max_iterations: int = 3000, seconds_per_iterati
                 # --- Execute Movement ---
                 if rcw != 0.0 or bf != 0.0: # Only send move command if needed
                     print(f"  Executing move: rcw={rcw:.2f}, bf={bf:.2f} for {MOVE_DURATION:.2f}s")
+                    drone.move(0, 0, 0, 0) 
                     drone.move(rcw, du, lr, bf)
                     time.sleep(MOVE_DURATION)
-                    drone.move(0, 0, 0, 0) # Stop movement after duration
                 else:
                     # No movement needed, just wait out the rest of the iteration time
                     pass
