@@ -697,7 +697,7 @@ def track_person_and_rotate_yolo(max_iterations: int = 300000000000, seconds_per
         METERS_PER_SECOND_FORWARD = 1.0 / 3.0    # approx 0.333 m/s, from move_forward_one_meter (3s for 1m)
         FOV_HORIZONTAL_DEGREES = 60.0            # Assumed camera horizontal field of view - IMPORTANT ASSUMPTION
         DESIRED_FORWARD_DISTANCE_M = 1.0        # Move 1.0m forward when person is centered
-        SCAN_ANGLE_DEGREES = 5.0                # Scan 30 degrees if person not found
+        SCAN_ANGLE_DEGREES = 15.0                # Scan 30 degrees if person not found
         
         MIN_ACTION_DURATION = 0.05               # Minimum duration for any movement action to be effective
         MAX_ROTATION_ACTION_DURATION = 3.0       # Max duration for a single rotation action (equiv. to 180 deg)
@@ -742,7 +742,10 @@ def track_person_and_rotate_yolo(max_iterations: int = 300000000000, seconds_per
                         
                         if person_found_this_iteration:
                             x1, y1, x2, y2 = best_person_box
-                            person_cx = (x1 + x2) / 2.0
+                            # Convert np.float32 to Python float for robust calculations
+                            px1 = float(x1)
+                            px2 = float(x2)
+                            person_cx = (px1 + px2) / 2.0
                             dx = person_cx - center_x # Horizontal deviation from center in pixels
                             
                             current_center_threshold_pixels = W * CENTER_THRESHOLD_PERCENT
