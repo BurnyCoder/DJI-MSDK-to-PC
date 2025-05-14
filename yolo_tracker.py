@@ -8,9 +8,7 @@ import cv2
 import numpy as np
 
 """
-In this example you can fly and see video from the drone in live!
-Like a computer game, move the drone with the keyboard and see its image
-on your computer screen!
+In this example you can fly and track people with the drone!
 
     press F - to takeoff the drone.
     press R - to land the drone.
@@ -27,10 +25,6 @@ on your computer screen!
 
 # IP address of the connected android device
 IP_ADDR = "192.168.1.115"
-
-# The image from the drone can be quit big,
-#  use this to scale down the image:
-SCALE_FACTOR = 0.5
 
 # Movement factors
 MOVE_VALUE = 0.015
@@ -76,36 +70,15 @@ with OpenDJI(IP_ADDR) as drone:
     while not keyboard.is_pressed('x') and yolo_model is not None:
         iter_count += 1 # Increment iteration counter
 
-        # Show image from the drone
-        # Get frame
+        # Get frame from the drone
         current_frame_data = drone.getFrame()
 
         # What to do when no frame available
         if current_frame_data is None:
-            # Use a copy to avoid modifying the global BLANK_FRAME if it were mutable
-            # and to ensure 'frame_for_processing' is always a new object for this iteration
             frame_for_processing = BLANK_FRAME.copy() 
         else:
             # Work with a copy of the received frame for safety
             frame_for_processing = current_frame_data.copy()
-
-        # Resize frame for display
-        # Create a display copy from the frame that will be processed/saved
-        frame_for_display = frame_for_processing.copy()
-        if not np.array_equal(frame_for_processing, BLANK_FRAME): # If it's a real frame
-            try:
-                if frame_for_processing.shape[0] > 0 and frame_for_processing.shape[1] > 0:
-                     frame_for_display = cv2.resize(frame_for_processing, dsize=None, fx=SCALE_FACTOR, fy=SCALE_FACTOR)
-            except cv2.error as e:
-                print(f"Error resizing frame for display: {e}")
-                # Fallback to displaying a scaled blank frame if resize fails
-                frame_for_display = cv2.resize(BLANK_FRAME.copy(), dsize=None, fx=SCALE_FACTOR, fy=SCALE_FACTOR)
-        else: # If frame_for_processing was BLANK_FRAME to begin with
-            frame_for_display = cv2.resize(BLANK_FRAME.copy(), dsize=None, fx=SCALE_FACTOR, fy=SCALE_FACTOR)
-
-        # Show frame
-        cv2.imshow("Live video", frame_for_display)
-        cv2.waitKey(20)
         
         # Movement variables
         yaw = 0.0
@@ -187,10 +160,9 @@ with OpenDJI(IP_ADDR) as drone:
             # Print current movement values for debugging
             print(f"Movement: yaw={yaw:.2f}, ascent={ascent:.2f}, roll={roll:.2f}, pitch={pitch:.2f}, person_found={person_found}")
             drone.move(yaw, ascent, roll, pitch)
-            time.sleep(0.02)  # Small sleep to prevent CPU overload
+            time.sleep(0.02) 
 
     if yolo_model is None:
         print("Exiting program because YOLO model could not be loaded.")
     
     drone.land(True)
-    cv2.destroyAllWindows()
