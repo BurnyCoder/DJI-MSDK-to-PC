@@ -202,6 +202,9 @@ def track_person_realtime_yolo(max_iterations: int = 300000000000, seconds_per_i
                 current_bf_command = 0.0
                 person_found_this_iteration = False
                 frame_saved_path = None
+                dx_for_filename = "NA" # Initialize for filename
+                log_decision_message_template = None # For deferred logging
+                log_decision_values = {} # For deferred logging
                 
                 try:
                     frame_np = drone.getFrame()
@@ -218,7 +221,7 @@ def track_person_realtime_yolo(max_iterations: int = 300000000000, seconds_per_i
                         # Save frame
                         current_frame_filename = f"iter_{i+1}_frame.jpg"
                         frame_saved_path = os.path.join(frames_dir, current_frame_filename)
-                        cv2.imwrite(frame_saved_path, frame_np)
+                        # cv2.imwrite(frame_saved_path, frame_np)
                         # log_message(log_file_name, f"  Frame saved: {frame_saved_path} (YT_RT)") # Optional
 
                     H, W, _ = frame_np.shape
@@ -244,22 +247,41 @@ def track_person_realtime_yolo(max_iterations: int = 300000000000, seconds_per_i
                             px2 = float(x2)
                             person_cx = (px1 + px2) / 2.0
                             dx = person_cx - center_x
+                            dx_for_filename = f"{dx:.1f}".replace('.', 'p').replace('-', 'neg') # Update dx_for_filename
                             current_center_threshold_pixels = W * CENTER_THRESHOLD_PERCENT
 
                             if abs(dx) > current_center_threshold_pixels:
                                 angle_to_correct_degrees = (dx / W) * FOV_HORIZONTAL_DEGREES # Informational
                                 current_rcw_command = MAX_SPEED if dx > 0 else -MAX_SPEED
                                 # current_bf_command remains 0.0
-                                log_message(log_file_name, f"  Decision: Person off-center (dx={dx:.1f}px, angle={angle_to_correct_degrees:.1f}deg). Action: Adjusting rotation. Current command values: rcw={current_rcw_command:.2f}, bf={current_bf_command:.2f}. Frame: {frame_saved_path} (YT_RT)")
+                                log_decision_message_template = "  Decision: Person off-center (dx={{dx:.1f}}px, angle={{angle:.1f}}deg). Action: Adjusting rotation. Current command values: rcw={{rcw:.2f}}, bf={{bf:.2f}}. Frame: {{frame_path}} (YT_RT)"
+                                log_decision_values = {'dx': dx, 'angle': angle_to_correct_degrees, 'rcw': current_rcw_command, 'bf': current_bf_command}
                             else:
                                 # current_rcw_command remains 0.0
                                 current_bf_command = MAX_SPEED
-                                log_message(log_file_name, f"  Decision: Person centered. Action: Adjusting forward. Current command values: rcw={current_rcw_command:.2f}, bf={current_bf_command:.2f}. Frame: {frame_saved_path} (YT_RT)")
+                                log_decision_message_template = "  Decision: Person centered. Action: Adjusting forward. Current command values: rcw={{rcw:.2f}}, bf={{bf:.2f}}. Frame: {{frame_path}} (YT_RT)"
+                                log_decision_values = {'rcw': current_rcw_command, 'bf': current_bf_command}
                     
                     if not person_found_this_iteration:
                         current_rcw_command = MAX_SPEED # Scan by rotating
                         # current_bf_command remains 0.0
-                        log_message(log_file_name, f"  Decision: No person detected. Action: Scanning. Current command values: rcw={current_rcw_command:.2f}, bf={current_bf_command:.2f}. Frame: {frame_saved_path} (YT_RT)")
+                        log_decision_message_template = "  Decision: No person detected. Action: Scanning. Current command values: rcw={{rcw:.2f}}, bf={{bf:.2f}}. Frame: {{frame_path}} (YT_RT)"
+                        log_decision_values = {'rcw': current_rcw_command, 'bf': current_bf_command}
+
+                    # Save frame with detailed name including command values
+                    rcw_str = f"{current_rcw_command:.2f}".replace('.', 'p').replace('-', 'neg')
+                    bf_str = f"{current_bf_command:.2f}".replace('.', 'p').replace('-', 'neg')
+                    person_str = "T" if person_found_this_iteration else "F"
+                    # dx_for_filename is already formatted and safe
+
+                    detailed_frame_filename = f"rcw{rcw_str}_bf{bf_str}_person{person_str}_dx{dx_for_filename}_iter{i+1}.jpg"
+                    frame_saved_path = os.path.join(frames_dir, detailed_frame_filename)
+                    cv2.imwrite(frame_saved_path, frame_np)
+                    
+                    # Log the decision using the template and the new frame_saved_path
+                    if log_decision_message_template:
+                        log_decision_values['frame_path'] = frame_saved_path
+                        log_message(log_file_name, log_decision_message_template.format(**log_decision_values))
 
                     log_message(log_file_name, f"Executing drone.move(rcw={current_rcw_command:.2f}, lr=0, ud=0, bf={current_bf_command:.2f}) (YT_RT)")
                     drone.move(current_rcw_command, 0, 0, current_bf_command)
