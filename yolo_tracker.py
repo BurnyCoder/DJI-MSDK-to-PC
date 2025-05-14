@@ -25,12 +25,16 @@ In this example you can fly and track people with the drone!
 """
 
 # IP address of the connected android device
-IP_ADDR = "192.168.1.115"
+IP_ADDR = os.environ.get("IP_ADDR", "192.168.1.115")
 
 # Movement factors
-MOVE_VALUE = 0.015
-ROTATE_VALUE = 0.15
-CENTER_THRESHOLD_PERCENT = 0.1
+MOVE_VALUE = float(os.environ.get("MOVE_VALUE", "0.015"))
+ROTATE_VALUE = float(os.environ.get("ROTATE_VALUE", "0.05"))
+CENTER_THRESHOLD_PERCENT = float(os.environ.get("CENTER_THRESHOLD_PERCENT", "0.2"))
+
+# Thread timing constants
+PROCESSING_THREAD_INTERVAL = float(os.environ.get("PROCESSING_THREAD_INTERVAL", "0.5"))  # Interval for frame processing and YOLO thread
+MOVEMENT_COMMAND_INTERVAL = float(os.environ.get("MOVEMENT_COMMAND_INTERVAL", "0.02"))  # Interval for sending movement commands
 
 # Create blank frame
 BLANK_FRAME = np.zeros((1080, 1920, 3))
@@ -150,7 +154,7 @@ def frame_processing_and_yolo_thread_func(drone_obj, yolo_model_obj, blank_frame
 
         # Ensure this thread runs approximately every 0.5 seconds
         elapsed_time = time.time() - start_processing_time
-        sleep_time = 0.5 - elapsed_time
+        sleep_time = PROCESSING_THREAD_INTERVAL - elapsed_time
         if sleep_time > 0:
             time.sleep(sleep_time)
     print("Processing thread stopped.")
@@ -170,7 +174,7 @@ def drone_movement_thread_func(drone_obj):
         # Print current movement values being sent to the drone
         print(f"Movement: yaw={local_yaw:.2f}, ascent={local_ascent:.2f}, roll={local_roll:.2f}, pitch={local_pitch:.2f}, person_found={local_person_found}")
         drone_obj.move(local_yaw, local_ascent, local_roll, local_pitch)
-        time.sleep(0.02) # Send command every 0.02 seconds
+        time.sleep(MOVEMENT_COMMAND_INTERVAL) # Send command every 0.02 seconds
     print("Movement thread stopped.")
 
 # Connect to the drone
