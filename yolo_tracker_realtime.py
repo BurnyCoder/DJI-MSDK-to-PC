@@ -14,6 +14,7 @@ load_dotenv()
 
 # --- Configuration (specific to this module) ---
 DRONE_IP_ADDR_YT = os.getenv("DRONE_IP_ADDR", "192.168.1.115")
+# DRONE_IP_ADDR_YT = os.getenv("DRONE_IP_ADDR", "0.0.0.0")
 
 # --- Global States for this module ---
 yt_drone_connection = None
@@ -183,11 +184,12 @@ def track_person_realtime_yolo(max_iterations: int = 300000000000, seconds_per_i
             return f"Takeoff failed, cannot start tracking (YT_RT): {takeoff_result}"
 
         log_message(log_file_name, "Stabilizing after takeoff (YT_RT)...")
-        time.sleep(10) # Keep stabilization period
+        time.sleep(9.5) # Keep stabilization period
 
         log_message(log_file_name, f"Starting YOLO real-time person tracking for up to {max_iterations} iterations (YT_RT).")
         
-        MAX_SPEED = 1.0 
+        MAX_ROTATE_SPEED = 0.15  # Renamed from MAX_SPEED, value from FPVdemo.py ROTATE_VALUE
+        MAX_FORWARD_SPEED = 0.015 # Value from FPVdemo.py MOVE_VALUE
         CENTER_THRESHOLD_PERCENT = 0.1 
         FOV_HORIZONTAL_DEGREES = 60.0
         # DESIRED_FORWARD_DISTANCE_M = 1.0 # Less directly applicable for continuous control logic but useful for context
@@ -195,6 +197,7 @@ def track_person_realtime_yolo(max_iterations: int = 300000000000, seconds_per_i
 
         try:
             for i in range(max_iterations):
+                time.sleep(0.5)
                 iteration_start_time = time.time()
                 log_message(log_file_name, f"Tracking iteration {i+1}/{max_iterations} (YT_RT)...")
                 
@@ -252,18 +255,18 @@ def track_person_realtime_yolo(max_iterations: int = 300000000000, seconds_per_i
 
                             if abs(dx) > current_center_threshold_pixels:
                                 angle_to_correct_degrees = (dx / W) * FOV_HORIZONTAL_DEGREES # Informational
-                                current_rcw_command = MAX_SPEED if dx > 0 else -MAX_SPEED
+                                current_rcw_command = MAX_ROTATE_SPEED if dx > 0 else -MAX_ROTATE_SPEED
                                 # current_bf_command remains 0.0
                                 log_decision_message_template = "  Decision: Person off-center (dx={{dx:.1f}}px, angle={{angle:.1f}}deg). Action: Adjusting rotation. Current command values: rcw={{rcw:.2f}}, bf={{bf:.2f}}. Frame: {{frame_path}} (YT_RT)"
                                 log_decision_values = {'dx': dx, 'angle': angle_to_correct_degrees, 'rcw': current_rcw_command, 'bf': current_bf_command}
                             else:
                                 # current_rcw_command remains 0.0
-                                current_bf_command = MAX_SPEED
+                                current_bf_command = MAX_FORWARD_SPEED
                                 log_decision_message_template = "  Decision: Person centered. Action: Adjusting forward. Current command values: rcw={{rcw:.2f}}, bf={{bf:.2f}}. Frame: {{frame_path}} (YT_RT)"
                                 log_decision_values = {'rcw': current_rcw_command, 'bf': current_bf_command}
                     
                     if not person_found_this_iteration:
-                        current_rcw_command = MAX_SPEED # Scan by rotating
+                        current_rcw_command = MAX_ROTATE_SPEED # Scan by rotating
                         # current_bf_command remains 0.0
                         log_decision_message_template = "  Decision: No person detected. Action: Scanning. Current command values: rcw={{rcw:.2f}}, bf={{bf:.2f}}. Frame: {{frame_path}} (YT_RT)"
                         log_decision_values = {'rcw': current_rcw_command, 'bf': current_bf_command}
@@ -284,6 +287,7 @@ def track_person_realtime_yolo(max_iterations: int = 300000000000, seconds_per_i
                         log_message(log_file_name, log_decision_message_template.format(**log_decision_values))
 
                     log_message(log_file_name, f"Executing drone.move(rcw={current_rcw_command:.2f}, lr=0, ud=0, bf={current_bf_command:.2f}) (YT_RT)")
+                    drone.move(0, 0, 0, 0)
                     drone.move(current_rcw_command, 0, 0, current_bf_command)
 
                 except Exception as e_iter:
@@ -292,12 +296,6 @@ def track_person_realtime_yolo(max_iterations: int = 300000000000, seconds_per_i
                         drone.move(0, 0, 0, 0) # Stop movement on iteration error
                     except Exception as stop_e:
                         log_message(log_file_name, f"Error stopping drone after iteration error (YT_RT): {stop_e}")
-                
-                # Maintain iteration timing
-                elapsed_processing_time = time.time() - iteration_start_time
-                sleep_duration = seconds_per_iteration - elapsed_processing_time
-                if sleep_duration > 0:
-                    time.sleep(sleep_duration)
             
             log_message(log_file_name, "Max iterations reached or tracking stopped (YT_RT).")
             log_message(log_file_name, "Stopping drone and landing (YT_RT)...")
