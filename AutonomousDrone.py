@@ -14,6 +14,9 @@ from ultralytics import YOLO # Added for YOLO object detection
 import json # Added for handling YOLO model info (potentially)
 import uuid # Added for generating unique log file names
 
+# Import the new YOLO tracker function
+from yolo_tracker import track_person_and_rotate_yolo
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -638,197 +641,6 @@ Examples:
         print(f"An overall error occurred during the track_person_and_rotate sequence: {e}")
         return f"Error during tracking sequence: {e}"
 
-@tool
-def track_person_and_rotate_yolo(max_iterations: int = 300000000000, seconds_per_iteration: float = 0.2) -> str:
-    """
-    Commands the drone to take off, then continuously uses YOLO object detection
-    to find a person, calculate their position relative to the frame center,
-    and issue rotation (rcw) and forward (bf) commands to track them in real-time.
-    Finally, commands the drone to land. Aims for lower latency than LLM-based tracking.
-
-    Args:
-        max_iterations: The maximum number of tracking iterations.
-        seconds_per_iteration: The target total cycle time for each iteration (includes processing, movement, waiting).
-
-    Returns:
-        str: A message indicating the result of the tracking sequence.
-    """
-    log_file_name = f"yolo_tracking_log_{uuid.uuid4().hex[:8]}.txt"
-    log_message(log_file_name, "Initiating YOLO-based automated person tracking sequence...")
-    global drone_connection
-    global yolo_model # Ensure yolo_model is accessible
-
-    if drone_connection is None:
-        initialize_drone_connection()
-        if drone_connection is None:
-            log_message(log_file_name, "Error: Drone connection not established. Cannot start tracking.")
-            return "Error: Drone connection not established. Cannot start tracking."
-
-    if yolo_model is None:
-        initialize_yolo_model()
-        if yolo_model is None:
-            log_message(log_file_name, "Error: YOLO model not initialized. Cannot start tracking.")
-            return "Error: YOLO model not initialized. Cannot start tracking."
-
-    try:
-        drone = drone_connection
-
-        result = drone.enableControl(True)
-        log_message(log_file_name, f"Enable SDK control command sent. Drone response: {result}")
-        
-        log_message(log_file_name, "Sending takeoff command...")
-        takeoff_result = drone.takeoff(True)
-        log_message(log_file_name, f"Takeoff result: {takeoff_result}")
-        if "error" in str(takeoff_result).lower() or "failed" in str(takeoff_result).lower():
-            log_message(log_file_name, f"Takeoff failed, cannot start tracking: {takeoff_result}")
-            return f"Takeoff failed, cannot start tracking: {takeoff_result}"
-
-        log_message(log_file_name, "Stabilizing after takeoff...")
-        time.sleep(10)
-
-        log_message(log_file_name, f"Starting YOLO person tracking for up to {max_iterations} iterations.")
-        
-        # --- Control Parameters ---
-        MAX_SPEED = 1.0 # Speed for movement commands (rcw, bf)
-        CENTER_THRESHOLD_PERCENT = 0.1 # Target horizontal center deadzone (10% of width)
-        
-        # New parameters for calculated durations
-        DEGREES_PER_SECOND_ROTATION = 180.0 / 3.0  # 60 deg/s, from rotate_90_degrees_clockwise (1.5s for 90deg)
-        METERS_PER_SECOND_FORWARD = 1.0 / 3.0    # approx 0.333 m/s, from move_forward_one_meter (3s for 1m)
-        FOV_HORIZONTAL_DEGREES = 60.0            # Assumed camera horizontal field of view - IMPORTANT ASSUMPTION
-        DESIRED_FORWARD_DISTANCE_M = 1.0        # Move 1.0m forward when person is centered
-        SCAN_ANGLE_DEGREES = 15.0                # Scan 30 degrees if person not found
-        
-        MIN_ACTION_DURATION = 0.05               # Minimum duration for any movement action to be effective
-        MAX_ROTATION_ACTION_DURATION = 3.0       # Max duration for a single rotation action (equiv. to 180 deg)
-        MAX_FORWARD_ACTION_DURATION = 6.0        # Max duration for a single forward action (equiv. to 2.0m)
-
-
-        # Wrap the main loop in a try-except block to catch KeyboardInterrupt
-        try:
-            for i in range(max_iterations):
-                iteration_start_time = time.time()
-                log_message(log_file_name, f"Tracking iteration {i+1}/{max_iterations}...")
-                
-                person_found_this_iteration = False
-                
-                try:
-                    frame_np = drone.getFrame()
-                    if frame_np is None:
-                        log_message(log_file_name, "No frame available. Skipping iteration.")
-                        # Consider if a short sleep is needed here if seconds_per_iteration logic is removed/changed
-                        time.sleep(seconds_per_iteration) 
-                        continue
-
-                    H, W, _ = frame_np.shape
-                    center_x = W / 2.0
-
-                    # Pass log_file_name to analyze_image_with_yolo
-                    yolo_results_obj, yolo_summary = analyze_image_with_yolo(frame_np, log_file_name) 
-
-                    if yolo_results_obj and yolo_results_obj[0].boxes:
-                        best_person_box = None
-                        max_conf = 0.0
-
-                        for box in yolo_results_obj[0].boxes:
-                            class_id = int(box.cls[0])
-                            conf = float(box.conf[0])
-                            class_name = yolo_model.names[class_id]
-
-                            if class_name == 'person' and conf > max_conf:
-                                max_conf = conf
-                                best_person_box = box.xyxy[0].cpu().numpy()
-                                person_found_this_iteration = True
-                        
-                        if person_found_this_iteration:
-                            x1, y1, x2, y2 = best_person_box
-                            # Convert np.float32 to Python float for robust calculations
-                            px1 = float(x1)
-                            px2 = float(x2)
-                            person_cx = (px1 + px2) / 2.0
-                            dx = person_cx - center_x # Horizontal deviation from center in pixels
-                            
-                            current_center_threshold_pixels = W * CENTER_THRESHOLD_PERCENT
-
-                            if abs(dx) > current_center_threshold_pixels:
-                                # --- Rotate to Center Person ---
-                                angle_to_correct_degrees = (dx / W) * FOV_HORIZONTAL_DEGREES
-                                
-                                # rcw: positive for clockwise, negative for anti-clockwise
-                                current_rcw_command = MAX_SPEED if dx > 0 else -MAX_SPEED 
-                                
-                                rotation_duration_calculated = abs(angle_to_correct_degrees) / DEGREES_PER_SECOND_ROTATION
-                                rotation_duration_actual = max(MIN_ACTION_DURATION, min(rotation_duration_calculated, MAX_ROTATION_ACTION_DURATION))
-                                
-                                log_message(log_file_name, f"  Person off-center (dx={dx:.1f}px, angle={angle_to_correct_degrees:.1f}deg). Rotating: rcw={current_rcw_command:.2f} for {rotation_duration_actual:.2f}s")
-                                drone.move(current_rcw_command, 0, 0, 0)
-                                time.sleep(rotation_duration_actual)
-                                drone.move(0, 0, 0, 0) # Stop rotation
-                            else:
-                                # --- Person Centered, Move Forward ---
-                                forward_duration_calculated = DESIRED_FORWARD_DISTANCE_M / METERS_PER_SECOND_FORWARD
-                                forward_duration_actual = max(MIN_ACTION_DURATION, min(forward_duration_calculated, MAX_FORWARD_ACTION_DURATION))
-                                
-                                current_bf_command = MAX_SPEED
-                                log_message(log_file_name, f"  Person centered. Moving forward: bf={current_bf_command:.2f} for {forward_duration_actual:.2f}s (dist: {DESIRED_FORWARD_DISTANCE_M:.2f}m)")
-                                drone.move(0, 0, 0, current_bf_command)
-                                time.sleep(forward_duration_actual)
-                                drone.move(0, 0, 0, 0) # Stop forward movement
-                    
-                    if not person_found_this_iteration: # Handles if yolo_results_obj is None, or no 'person' found
-                        # --- No Person Detected, Scan ---
-                        scan_rotation_duration = SCAN_ANGLE_DEGREES / DEGREES_PER_SECOND_ROTATION
-                        scan_rotation_actual = max(MIN_ACTION_DURATION, min(scan_rotation_duration, MAX_ROTATION_ACTION_DURATION))
-                        current_rcw_scan_command = MAX_SPEED # Default to clockwise scan
-
-                        log_message(log_file_name, f"  No person detected. Scanning clockwise ({SCAN_ANGLE_DEGREES}deg): rcw={current_rcw_scan_command:.2f} for {scan_rotation_actual:.2f}s")
-                        drone.move(current_rcw_scan_command, 0, 0, 0)
-                        time.sleep(scan_rotation_actual)
-                        drone.move(0, 0, 0, 0) # Stop scanning rotation
-
-                except Exception as e:
-                    log_message(log_file_name, f"Error in YOLO tracking iteration {i+1}: {str(e)}")
-                    try:
-                        drone.move(0, 0, 0, 0) # Stop movement in case of error
-                    except Exception as stop_e:
-                        log_message(log_file_name, f"Error stopping drone after iteration error: {stop_e}")
-
-                # Optional: manage iteration timing if seconds_per_iteration is critical path
-                # The current sleeps for actions will dominate the iteration time.
-                # If `seconds_per_iteration` is meant as a minimum delay *after* actions,
-                # it would need to be handled differently, e.g., by calculating remaining time.
-                # For now, actions dictate the pace. The `time.sleep(seconds_per_iteration)`
-                # in the `frame_np is None` case remains to prevent busy-looping when no frames.
-                
-            log_message(log_file_name, "Max iterations reached or tracking stopped.")
-            # --- Land ---
-            log_message(log_file_name, "Landing the drone...")
-            drone.move(0, 0, 0, 0) 
-            land_result = drone.land(True)
-            log_message(log_file_name, f"Landing result: {land_result}")
-            return f"YOLO person tracking completed after {i + 1} iterations."
-
-        except KeyboardInterrupt:
-            log_message(log_file_name, "User interrupted (Ctrl+C). Landing the drone...")
-            try:
-                drone.move(0, 0, 0, 0) # Stop any active movement
-                land_result = drone.land(True)
-                log_message(log_file_name, f"Landing result: {land_result}")
-            except Exception as e_land:
-                log_message(log_file_name, f"Error during landing after interruption: {e_land}")
-            return "YOLO person tracking interrupted by user. Drone landed."
-
-    except Exception as e:
-        log_message(log_file_name, f"An overall error occurred during the YOLO track_person sequence: {e}")
-        # Attempt to land in case of unexpected top-level error
-        try:
-            log_message(log_file_name, "Attempting emergency land...")
-            drone.move(0, 0, 0, 0) 
-            drone.land(True)
-        except Exception as land_e:
-            log_message(log_file_name, f"Failed to execute emergency land: {land_e}")
-        return f"Error during YOLO tracking sequence: {e}"
-
 class AutonomousDroneAgent:
     def __init__(self):
         # --- Agent Initialization ---
@@ -926,8 +738,8 @@ if __name__ == "__main__":
 
             # Option 4 example: YOLO Tracking
             print("\n--- Running Example: YOLO Person Tracking ---")
-            result_yolo = track_person_and_rotate_yolo()
-            print(result_yolo)
+            response = agent_instance.run_query("Use YOLO to track a person.")
+            print(response)
 
     except ValueError as ve:
         print(f"Initialization Error: {ve}")
