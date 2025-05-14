@@ -6,6 +6,7 @@ import os
 import keyboard
 import cv2
 import numpy as np
+import threading
 
 """
 In this example you can fly and track people with the drone!
@@ -52,117 +53,187 @@ except Exception as e:
     print("Please ensure 'yolov8n.pt' is accessible and ultralytics is installed.")
     yolo_model = None
 
-# Connect to the drone
-with OpenDJI(IP_ADDR) as drone:
+# --- Shared data between threads ---
+shared_data_lock = threading.Lock()
+latest_movement_commands = {
+    "yaw": 0.0,
+    "ascent": 0.0,
+    "roll": 0.0,
+    "pitch": 0.0,
+    "person_found": False # Added for logging in movement thread
+}
+stop_threads_event = threading.Event()
+# --- End of Shared data ---
 
-    result = drone.enableControl(True)
-    print(f"Enable SDK control command sent. Drone response: {result}")
+# --- Thread 1: Frame Processing and YOLO ---
+def frame_processing_and_yolo_thread_func(drone_obj, yolo_model_obj, blank_frame_img, frames_dir_path):
+    print("Processing thread started.")
+    iter_count = 0 # Initialize iteration counter for this thread
 
-    print("Taking off...")
-    drone.takeoff(True)
-    time.sleep(10)
-    print("Taking off complete")
+    while not stop_threads_event.is_set():
+        start_processing_time = time.time()
+        iter_count += 1
 
-    iter_count = 0 # Initialize iteration counter
+        current_frame_data = drone_obj.getFrame()
+        frame_for_processing = blank_frame_img.copy() if current_frame_data is None else current_frame_data.copy()
 
-    # Press 'x' to close the program
-    print("Press 'x' to close the program")
-    while not keyboard.is_pressed('x') and yolo_model is not None:
-        iter_count += 1 # Increment iteration counter
+        # Local movement variables for this cycle's calculation
+        calculated_yaw = 0.0
+        calculated_ascent = 0.0 # Assuming ascent and roll are not dynamically changed by YOLO yet
+        calculated_roll = 0.0
+        calculated_pitch = 0.0
+        dx_val_for_filename = None
+        person_detected_this_frame = False
 
-        # Get frame from the drone
-        current_frame_data = drone.getFrame()
-
-        # What to do when no frame available
-        if current_frame_data is None:
-            frame_for_processing = BLANK_FRAME.copy() 
-        else:
-            # Work with a copy of the received frame for safety
-            frame_for_processing = current_frame_data.copy()
-        
-        # Movement variables
-        yaw = 0.0
-        ascent = 0.0
-        roll = 0.0
-        pitch = 0.0
-        dx_val = None  # Initialize dx_val for filename and logic
-        person_found = False # Reset for current frame's analysis
-
-        # YOLO-based movement logic
-        # 'frame_for_processing' here is the original unscaled frame (or a copy of BLANK_FRAME)
-        if not np.array_equal(frame_for_processing, BLANK_FRAME) and frame_for_processing.shape[0] > 0 and frame_for_processing.shape[1] > 0:
-            # This is the frame YOLO will process
-            
+        if not np.array_equal(frame_for_processing, blank_frame_img) and frame_for_processing.shape[0] > 0 and frame_for_processing.shape[1] > 0:
             H, W, _ = frame_for_processing.shape
             frame_center_x = W / 2.0
             current_center_threshold_pixels = W * CENTER_THRESHOLD_PERCENT
 
-            yolo_results = yolo_model(frame_for_processing, verbose=False)
-            # person_found is already initialized to False for this iteration
-
+            yolo_results = yolo_model_obj(frame_for_processing, verbose=False)
+            
             if yolo_results and yolo_results[0].boxes:
                 for box in yolo_results[0].boxes:
                     class_id = int(box.cls[0])
-                    class_name = yolo_model.names[class_id]
+                    class_name = yolo_model_obj.names[class_id]
                     
                     if class_name == 'person':
                         person_coords = box.xyxy[0].cpu().numpy() 
                         px1, _, px2, _ = person_coords
                         person_cx = (px1 + px2) / 2.0
-                        dx_val = person_cx - frame_center_x # Assign to dx_val
+                        dx_val = person_cx - frame_center_x
+                        dx_val_for_filename = dx_val # Save for filename
 
                         if abs(dx_val) > current_center_threshold_pixels:
-                            yaw = ROTATE_VALUE if dx_val > 0 else -ROTATE_VALUE
-                            pitch = 0.0 # Stop forward movement while rotating
-                        else: # Person is centered
-                            yaw = 0.0 # Stop rotation
-                            pitch = MOVE_VALUE # Move forward
+                            calculated_yaw = ROTATE_VALUE if dx_val > 0 else -ROTATE_VALUE
+                            calculated_pitch = 0.0
+                        else:
+                            calculated_yaw = 0.0
+                            calculated_pitch = MOVE_VALUE
                         
-                        person_found = True # Set person_found flag
-                        break # Found a person, no need to check other boxes
+                        person_detected_this_frame = True
+                        break 
 
-            if not person_found: # If no person was found after checking all boxes
-                yaw = ROTATE_VALUE # Scan
-                pitch = 0.0
-        else: # This 'else' corresponds to (frame_for_processing is BLANK_FRAME or has invalid shape)
-            # No YOLO analysis, so no person found by YOLO this iteration
-            # person_found remains False (as initialized)
-            yaw = 0.0 # Default to no movement
-            pitch = 0.0
-            # ascent and roll are already 0.0
-            # dx_val remains None
+            if not person_detected_this_frame:
+                calculated_yaw = ROTATE_VALUE # Scan
+                calculated_pitch = 0.0
+        else: # Blank frame or invalid shape
+            calculated_yaw = 0.0
+            calculated_pitch = 0.0
+            # person_detected_this_frame remains False
         
-        # --- Image Saving Logic ---
-        # Save 'frame_for_processing' if it's not the BLANK_FRAME and is valid
-        if not np.array_equal(frame_for_processing, BLANK_FRAME) and frame_for_processing.shape[0] > 0 and frame_for_processing.shape[1] > 0:
-            yaw_str = f"{yaw:.2f}".replace('.', 'p').replace('-', 'neg')
-            pitch_str = f"{pitch:.2f}".replace('.', 'p').replace('-', 'neg')
-            person_str = "T" if person_found else "F"
-            
-            dx_for_filename = "NA"
-            if person_found and dx_val is not None: # Check person_found status
-                dx_for_filename = f"{dx_val:.1f}".replace('.', 'p').replace('-', 'neg')
+        # Update shared movement commands
+        with shared_data_lock:
+            latest_movement_commands["yaw"] = calculated_yaw
+            latest_movement_commands["ascent"] = calculated_ascent
+            latest_movement_commands["roll"] = calculated_roll
+            latest_movement_commands["pitch"] = calculated_pitch
+            latest_movement_commands["person_found"] = person_detected_this_frame
 
-            detailed_frame_filename = f"yaw{yaw_str}_pitch{pitch_str}_person{person_str}_dx{dx_for_filename}_iter{iter_count}.jpg"
-            frame_saved_path = os.path.join(FRAMES_DIR, detailed_frame_filename)
+        # Image Saving Logic (using calculated values before lock or from local vars)
+        if not np.array_equal(frame_for_processing, blank_frame_img) and frame_for_processing.shape[0] > 0 and frame_for_processing.shape[1] > 0:
+            yaw_str = f"{calculated_yaw:.2f}".replace('.', 'p').replace('-', 'neg')
+            pitch_str = f"{calculated_pitch:.2f}".replace('.', 'p').replace('-', 'neg')
+            person_str = "T" if person_detected_this_frame else "F"
+            
+            dx_filename_part = "NA"
+            if person_detected_this_frame and dx_val_for_filename is not None:
+                dx_filename_part = f"{dx_val_for_filename:.1f}".replace('.', 'p').replace('-', 'neg')
+
+            detailed_frame_filename = f"yaw{yaw_str}_pitch{pitch_str}_person{person_str}_dx{dx_filename_part}_iter{iter_count}.jpg"
+            frame_saved_path = os.path.join(frames_dir_path, detailed_frame_filename)
             
             try:
-                cv2.imwrite(frame_saved_path, frame_for_processing) 
-                # print(f"Saved frame: {frame_saved_path}") # Uncomment for verbose logging
+                cv2.imwrite(frame_saved_path, frame_for_processing)
             except Exception as e_save:
                 print(f"Error saving frame {frame_saved_path}: {e_save}")
-        # --- End of Image Saving Logic ---
 
-        # Send the movement command        
-        # Continue moving with same values for 0.5 seconds
-        start_time = time.time()
-        while time.time() - start_time < 0.5:
-            # Print current movement values for debugging
-            print(f"Movement: yaw={yaw:.2f}, ascent={ascent:.2f}, roll={roll:.2f}, pitch={pitch:.2f}, person_found={person_found}")
-            drone.move(yaw, ascent, roll, pitch)
-            time.sleep(0.02) 
+        # Ensure this thread runs approximately every 0.5 seconds
+        elapsed_time = time.time() - start_processing_time
+        sleep_time = 0.5 - elapsed_time
+        if sleep_time > 0:
+            time.sleep(sleep_time)
+    print("Processing thread stopped.")
 
+# --- Thread 2: Drone Movement ---
+def drone_movement_thread_func(drone_obj):
+    print("Movement thread started.")
+    while not stop_threads_event.is_set():
+        local_yaw, local_ascent, local_roll, local_pitch, local_person_found = 0.0, 0.0, 0.0, 0.0, False
+        with shared_data_lock:
+            local_yaw = latest_movement_commands["yaw"]
+            local_ascent = latest_movement_commands["ascent"]
+            local_roll = latest_movement_commands["roll"]
+            local_pitch = latest_movement_commands["pitch"]
+            local_person_found = latest_movement_commands["person_found"] # Get for logging
+
+        # Print current movement values being sent to the drone
+        print(f"Movement: yaw={local_yaw:.2f}, ascent={local_ascent:.2f}, roll={local_roll:.2f}, pitch={local_pitch:.2f}, person_found={local_person_found}")
+        drone_obj.move(local_yaw, local_ascent, local_roll, local_pitch)
+        time.sleep(0.02) # Send command every 0.02 seconds
+    print("Movement thread stopped.")
+
+# Connect to the drone
+with OpenDJI(IP_ADDR) as drone:
     if yolo_model is None:
-        print("Exiting program because YOLO model could not be loaded.")
-    
+        print("YOLO model not loaded. Exiting application.")
+    else:
+        result = drone.enableControl(True)
+        print(f"Enable SDK control command sent. Drone response: {result}")
+
+        print("Taking off...")
+        drone.takeoff(True)
+        time.sleep(10)
+        print("Taking off complete")
+
+        # Create and start threads
+        processing_thread = threading.Thread(target=frame_processing_and_yolo_thread_func, 
+                                             args=(drone, yolo_model, BLANK_FRAME, FRAMES_DIR))
+        movement_thread = threading.Thread(target=drone_movement_thread_func, args=(drone,))
+
+        processing_thread.start()
+        movement_thread.start()
+
+        print("Press 'x' to stop and land the drone.")
+        while not stop_threads_event.is_set():
+            if keyboard.is_pressed('x'):
+                print("'x' pressed, signaling threads to stop...")
+                stop_threads_event.set()
+                break
+            # Check if threads are alive, if not, signal stop (safety)
+            if not processing_thread.is_alive() or not movement_thread.is_alive():
+                print("A thread has unexpectedly stopped. Signaling all threads to stop.")
+                stop_threads_event.set()
+                break
+            time.sleep(0.1) # Main thread polling interval
+
+        print("Waiting for threads to complete...")
+        processing_thread.join()
+        movement_thread.join()
+        print("Threads have completed.")
+
+    print("Landing drone...")
     drone.land(True)
+    print("Drone landed. Exiting program.")
+
+# Original main loop is now replaced by the threaded structure above.
+# The rest of the original code related to the single loop is removed or integrated into threads.
+
+# Comment out or remove the old loop structure:
+# iter_count = 0 # Initialize iteration counter
+# Press 'x' to close the program
+# print("Press 'x' to close the program")
+# while not keyboard.is_pressed('x') and yolo_model is not None:
+#     iter_count += 1 # Increment iteration counter
+#     # ... (rest of the old loop logic) ...
+#     # Send the movement command        
+#     # Continue moving with same values for 0.5 seconds
+#     start_time = time.time()
+#     while time.time() - start_time < 0.5:
+#         # Print current movement values for debugging
+#         print(f"Movement: yaw={yaw:.2f}, ascent={ascent:.2f}, roll={roll:.2f}, pitch={pitch:.2f}, person_found={person_found}")
+#         drone.move(yaw, ascent, roll, pitch)
+#         time.sleep(0.02) 
+# if yolo_model is None:
+#     print("Exiting program because YOLO model could not be loaded.")
+# drone.land(True)
