@@ -1,3 +1,22 @@
+"""
+This application demonstrates real-time person tracking using a DJI drone and YOLO object detection.
+It uses a multi-threaded approach to:
+1. Process video frames from the drone and detect people using YOLO
+2. Calculate movement commands to keep detected people centered in the frame
+3. Send continuous movement commands to the drone for smooth tracking, such as rotating and moving forward
+
+The system runs two parallel threads:
+- A processing thread that handles frame capture, YOLO detection, and movement calculation
+- A movement thread that continuously sends commands to the drone
+
+Key features:
+- Automatic takeoff and landing
+- Real-time person detection and tracking
+- Frame-by-frame logging with detection details
+- Graceful shutdown with keyboard interrupt ('x' key)
+- Configurable movement parameters via environment variables
+"""
+
 from OpenDJI import OpenDJI
 from ultralytics import YOLO
 import time
@@ -7,22 +26,6 @@ import keyboard
 import cv2
 import numpy as np
 import threading
-
-"""
-In this example you can fly and track people with the drone!
-
-    press F - to takeoff the drone.
-    press R - to land the drone.
-    press E - to enable control from keyboard (joystick disabled)
-    press Q - to disable control from keyboard (joystick enabled)
-    press X - to close the problam
-
-    YOLO-based movement:
-    - The drone will attempt to find a 'person' in the video feed.
-    - If a person is detected, it will rotate to center them.
-    - If a person is centered, it will move forward.
-    - If no person is detected, it will rotate to scan.
-"""
 
 # IP address of the connected android device
 IP_ADDR = os.environ.get("IP_ADDR", "192.168.1.115")
