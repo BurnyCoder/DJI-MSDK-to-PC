@@ -20,7 +20,8 @@ This example demonstrate how to control the drone using OpenDJI class.
 """
 
 # IP address of the connected android device
-IP_ADDR = "10.0.0.6"
+import os
+IP_ADDR = os.getenv("DRONE_IP_ADDR", "192.168.1.115")
 
 # Movement factors
 MOVE_VALUE = 0.03

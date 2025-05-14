@@ -19,7 +19,8 @@ and set it view direction. Make note on the output from the terminal!
 """
 
 # IP address of the connected android device
-IP_ADDR = "10.0.0.6"
+import os
+IP_ADDR = os.getenv("DRONE_IP_ADDR", "192.168.1.115")
 
 # The image from the drone can be quit big,
 #  use this to scale down the image:
@@ -37,11 +38,38 @@ pitch = 0.0
 roll = 0.0
 yaw = 0.0
 
+import uuid
+import time
 
 # Connect to the drone
 with OpenDJI(IP_ADDR) as drone:
 
     
+    log_file_name = f"yt_realtime_tracking_log_{uuid.uuid4().hex[:8]}.txt" # Specific log for this run
+
+    # Create a directory for saving frames for this run
+    base_log_name = os.path.splitext(os.path.basename(log_file_name))[0]
+    frames_dir = os.path.join(os.path.dirname(log_file_name) or "logs", base_log_name + "_frames")
+    if not os.path.exists(frames_dir):
+        os.makedirs(frames_dir)
+    print(f"Frames for this run will be saved in: {frames_dir} (YT_RT)")
+    
+    print("Initiating YOLO-based REAL-TIME automated person tracking sequence (YT_RT)...")
+    global yt_drone_connection, yt_yolo_model # Referencing this module's globals
+
+    result = drone.enableControl(True)
+    print(f"Enable SDK control command sent (YT_RT). Drone response: {result}")
+    
+    print("Sending takeoff command (YT_RT)...")
+    takeoff_result = drone.takeoff(True)
+    print(f"Takeoff result (YT_RT): {takeoff_result}")
+
+    print("Stabilizing after takeoff (YT_RT)...")
+    time.sleep(9.5) # Keep stabilization period
+
+    print(f"Starting.")
+    
+
     # Press 'x' to close the program
     print("Press 'x' to close the program")
     while cv2.waitKey(20) != ord('x'):

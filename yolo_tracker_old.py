@@ -14,7 +14,6 @@ load_dotenv()
 
 # --- Configuration (specific to this module) ---
 DRONE_IP_ADDR_YT = os.getenv("DRONE_IP_ADDR", "192.168.1.115")
-# DRONE_IP_ADDR_YT = os.getenv("DRONE_IP_ADDR", "0.0.0.0")
 
 # --- Global States for this module ---
 yt_drone_connection = None
@@ -129,14 +128,13 @@ def yt_analyze_image_with_yolo(image_frame, log_file_name: str):
         log_message(log_file_name, f"Error during YOLO analysis (YT): {e}")
         return None, f"Error during YOLO analysis (YT): {e}"
 
-def track_person_realtime_yolo(max_iterations: int = 300000000000, seconds_per_iteration: float = 0.1) -> str:
+def track_person_and_rotate_yolo(max_iterations: int = 300000000000, seconds_per_iteration: float = 0.2) -> str:
     """
     Commands the drone to take off, then continuously uses YOLO object detection
     to find a person, calculate their position relative to the frame center,
-    and issue rotation (rcw) and forward (bf) commands to track them in real-time
-    by repeatedly setting drone.move() without intermediate stops.
+    and issue rotation (rcw) and forward (bf) commands to track them in real-time.
     Uses self-contained utilities (YT suffixed) for logging, drone, and YOLO management.
-    Finally, commands the drone to land. Aims for lower latency and smoother tracking.
+    Finally, commands the drone to land. Aims for lower latency than LLM-based tracking.
     Saves image frames and logs detailed command info.
 
     Args:
@@ -146,75 +144,71 @@ def track_person_realtime_yolo(max_iterations: int = 300000000000, seconds_per_i
     Returns:
         str: A message indicating the result of the tracking sequence.
     """
-    log_file_name = f"yt_realtime_tracking_log_{uuid.uuid4().hex[:8]}.txt" # Specific log for this run
-
+    log_file_name = f"yt_tracking_log_{uuid.uuid4().hex[:8]}.txt" # Specific log for this run
+    
     # Create a directory for saving frames for this run
     base_log_name = os.path.splitext(os.path.basename(log_file_name))[0]
     frames_dir = os.path.join(os.path.dirname(log_file_name) or "logs", base_log_name + "_frames")
     if not os.path.exists(frames_dir):
         os.makedirs(frames_dir)
-    log_message(log_file_name, f"Frames for this run will be saved in: {frames_dir} (YT_RT)")
-    
-    log_message(log_file_name, "Initiating YOLO-based REAL-TIME automated person tracking sequence (YT_RT)...")
+    log_message(log_file_name, f"Frames for this run will be saved in: {frames_dir} (YT)")
+
+    log_message(log_file_name, "Initiating YOLO-based automated person tracking sequence (YT)...")
     global yt_drone_connection, yt_yolo_model # Referencing this module's globals
 
     if yt_drone_connection is None:
         yt_initialize_drone_connection()
         if yt_drone_connection is None:
-            log_message(log_file_name, "Error: Drone connection not established (YT_RT). Cannot start tracking.")
-            return "Error: Drone connection not established (YT_RT). Cannot start tracking."
+            log_message(log_file_name, "Error: Drone connection not established (YT). Cannot start tracking.")
+            return "Error: Drone connection not established (YT). Cannot start tracking."
 
     if yt_yolo_model is None:
         yt_initialize_yolo_model()
         if yt_yolo_model is None:
-            log_message(log_file_name, "Error: YOLO model not initialized (YT_RT). Cannot start tracking.")
-            return "Error: YOLO model not initialized (YT_RT). Cannot start tracking."
+            log_message(log_file_name, "Error: YOLO model not initialized (YT). Cannot start tracking.")
+            return "Error: YOLO model not initialized (YT). Cannot start tracking."
 
     try:
         drone = yt_drone_connection # Use this module's connection
 
         result = drone.enableControl(True)
-        log_message(log_file_name, f"Enable SDK control command sent (YT_RT). Drone response: {result}")
+        log_message(log_file_name, f"Enable SDK control command sent (YT). Drone response: {result}")
         
-        log_message(log_file_name, "Sending takeoff command (YT_RT)...")
+        log_message(log_file_name, "Sending takeoff command (YT)...")
         takeoff_result = drone.takeoff(True)
-        log_message(log_file_name, f"Takeoff result (YT_RT): {takeoff_result}")
+        log_message(log_file_name, f"Takeoff result (YT): {takeoff_result}")
         if "error" in str(takeoff_result).lower() or "failed" in str(takeoff_result).lower():
-            log_message(log_file_name, f"Takeoff failed, cannot start tracking (YT_RT): {takeoff_result}")
-            return f"Takeoff failed, cannot start tracking (YT_RT): {takeoff_result}"
+            log_message(log_file_name, f"Takeoff failed, cannot start tracking (YT): {takeoff_result}")
+            return f"Takeoff failed, cannot start tracking (YT): {takeoff_result}"
 
-        log_message(log_file_name, "Stabilizing after takeoff (YT_RT)...")
-        time.sleep(9.5) # Keep stabilization period
+        log_message(log_file_name, "Stabilizing after takeoff (YT)...")
+        time.sleep(10)
 
-        log_message(log_file_name, f"Starting YOLO real-time person tracking for up to {max_iterations} iterations (YT_RT).")
+        log_message(log_file_name, f"Starting YOLO person tracking for up to {max_iterations} iterations (YT).")
         
-        MAX_ROTATE_SPEED = 0.15  # Renamed from MAX_SPEED, value from FPVdemo.py ROTATE_VALUE
-        MAX_FORWARD_SPEED = 0.015 # Value from FPVdemo.py MOVE_VALUE
+        MAX_SPEED = 1.0 
         CENTER_THRESHOLD_PERCENT = 0.1 
+        DEGREES_PER_SECOND_ROTATION = 180.0 / 3.0
+        METERS_PER_SECOND_FORWARD = 1.0 / 3.0
         FOV_HORIZONTAL_DEGREES = 60.0
-        # DESIRED_FORWARD_DISTANCE_M = 1.0 # Less directly applicable for continuous control logic but useful for context
-        # SCAN_ANGLE_DEGREES = 15.0 # Scanning is now continuous rotation at MAX_SPEED
+        DESIRED_FORWARD_DISTANCE_M = 1.0
+        SCAN_ANGLE_DEGREES = 15.0
+        MIN_ACTION_DURATION = 0.05
+        MAX_ROTATION_ACTION_DURATION = 3.0
+        MAX_FORWARD_ACTION_DURATION = 6.0
 
         try:
             for i in range(max_iterations):
-                time.sleep(0.5)
                 iteration_start_time = time.time()
-                log_message(log_file_name, f"Tracking iteration {i+1}/{max_iterations} (YT_RT)...")
-                
-                current_rcw_command = 0.0
-                current_bf_command = 0.0
+                log_message(log_file_name, f"Tracking iteration {i+1}/{max_iterations} (YT)...")
                 person_found_this_iteration = False
                 frame_saved_path = None
-                dx_for_filename = "NA" # Initialize for filename
-                log_decision_message_template = None # For deferred logging
-                log_decision_values = {} # For deferred logging
                 
                 try:
                     frame_np = drone.getFrame()
                     if frame_np is None:
-                        log_message(log_file_name, f"Decision: No frame available. Action: Holding position. Command: rcw=0, lr=0, ud=0, bf=0. Frame: {frame_saved_path} (YT_RT)")
-                        drone.move(0, 0, 0, 0) # Explicitly hold if no frame
-                        # Calculate sleep time to maintain iteration cadence
+                        log_message(log_file_name, "No frame available (YT). Skipping iteration.")
+                        # Calculate sleep time to maintain iteration cadence even if no frame
                         elapsed_processing_time = time.time() - iteration_start_time
                         sleep_duration = seconds_per_iteration - elapsed_processing_time
                         if sleep_duration > 0:
@@ -224,8 +218,8 @@ def track_person_realtime_yolo(max_iterations: int = 300000000000, seconds_per_i
                         # Save frame
                         current_frame_filename = f"iter_{i+1}_frame.jpg"
                         frame_saved_path = os.path.join(frames_dir, current_frame_filename)
-                        # cv2.imwrite(frame_saved_path, frame_np)
-                        # log_message(log_file_name, f"  Frame saved: {frame_saved_path} (YT_RT)") # Optional
+                        cv2.imwrite(frame_saved_path, frame_np)
+                        # log_message(log_file_name, f"  Frame saved: {frame_saved_path} (YT)") # Optional: can be verbose
 
                     H, W, _ = frame_np.shape
                     center_x = W / 2.0
@@ -250,80 +244,69 @@ def track_person_realtime_yolo(max_iterations: int = 300000000000, seconds_per_i
                             px2 = float(x2)
                             person_cx = (px1 + px2) / 2.0
                             dx = person_cx - center_x
-                            dx_for_filename = f"{dx:.1f}".replace('.', 'p').replace('-', 'neg') # Update dx_for_filename
                             current_center_threshold_pixels = W * CENTER_THRESHOLD_PERCENT
 
                             if abs(dx) > current_center_threshold_pixels:
-                                angle_to_correct_degrees = (dx / W) * FOV_HORIZONTAL_DEGREES # Informational
-                                current_rcw_command = MAX_ROTATE_SPEED if dx > 0 else -MAX_ROTATE_SPEED
-                                # current_bf_command remains 0.0
-                                log_decision_message_template = "  Decision: Person off-center (dx={{dx:.1f}}px, angle={{angle:.1f}}deg). Action: Adjusting rotation. Current command values: rcw={{rcw:.2f}}, bf={{bf:.2f}}. Frame: {{frame_path}} (YT_RT)"
-                                log_decision_values = {'dx': dx, 'angle': angle_to_correct_degrees, 'rcw': current_rcw_command, 'bf': current_bf_command}
+                                angle_to_correct_degrees = (dx / W) * FOV_HORIZONTAL_DEGREES
+                                current_rcw_command = MAX_SPEED if dx > 0 else -MAX_SPEED
+                                rotation_duration_calculated = abs(angle_to_correct_degrees) / DEGREES_PER_SECOND_ROTATION
+                                rotation_duration_actual = max(MIN_ACTION_DURATION, min(rotation_duration_calculated, MAX_ROTATION_ACTION_DURATION))
+                                log_message(log_file_name, f"  Decision: Person off-center (dx={dx:.1f}px, angle={angle_to_correct_degrees:.1f}deg). Action: Rotating. Command: rcw={current_rcw_command:.2f}, lr=0, ud=0, bf=0 for {rotation_duration_actual:.2f}s. Frame: {frame_saved_path} (YT)")
+                                drone.move(current_rcw_command, 0, 0, 0)
+                                time.sleep(rotation_duration_actual)
+                                drone.move(0, 0, 0, 0)
                             else:
-                                # current_rcw_command remains 0.0
-                                current_bf_command = MAX_FORWARD_SPEED
-                                log_decision_message_template = "  Decision: Person centered. Action: Adjusting forward. Current command values: rcw={{rcw:.2f}}, bf={{bf:.2f}}. Frame: {{frame_path}} (YT_RT)"
-                                log_decision_values = {'rcw': current_rcw_command, 'bf': current_bf_command}
+                                forward_duration_calculated = DESIRED_FORWARD_DISTANCE_M / METERS_PER_SECOND_FORWARD
+                                forward_duration_actual = max(MIN_ACTION_DURATION, min(forward_duration_calculated, MAX_FORWARD_ACTION_DURATION))
+                                current_bf_command = MAX_SPEED # Assuming bf is forward positive
+                                log_message(log_file_name, f"  Decision: Person centered. Action: Moving forward. Command: rcw=0, lr=0, ud=0, bf={current_bf_command:.2f} for {forward_duration_actual:.2f}s (dist: {DESIRED_FORWARD_DISTANCE_M:.2f}m). Frame: {frame_saved_path} (YT)")
+                                drone.move(0, 0, 0, current_bf_command)
+                                time.sleep(forward_duration_actual)
+                                drone.move(0, 0, 0, 0)
                     
                     if not person_found_this_iteration:
-                        current_rcw_command = MAX_ROTATE_SPEED # Scan by rotating
-                        # current_bf_command remains 0.0
-                        log_decision_message_template = "  Decision: No person detected. Action: Scanning. Current command values: rcw={{rcw:.2f}}, bf={{bf:.2f}}. Frame: {{frame_path}} (YT_RT)"
-                        log_decision_values = {'rcw': current_rcw_command, 'bf': current_bf_command}
+                        scan_rotation_duration = SCAN_ANGLE_DEGREES / DEGREES_PER_SECOND_ROTATION
+                        scan_rotation_actual = max(MIN_ACTION_DURATION, min(scan_rotation_duration, MAX_ROTATION_ACTION_DURATION))
+                        current_rcw_scan_command = MAX_SPEED
+                        log_message(log_file_name, f"  Decision: No person detected. Action: Scanning clockwise ({SCAN_ANGLE_DEGREES}deg). Command: rcw={current_rcw_scan_command:.2f}, lr=0, ud=0, bf=0 for {scan_rotation_actual:.2f}s. Frame: {frame_saved_path} (YT)")
+                        drone.move(current_rcw_scan_command, 0, 0, 0)
+                        time.sleep(scan_rotation_actual)
+                        drone.move(0, 0, 0, 0)
 
-                    # Save frame with detailed name including command values
-                    rcw_str = f"{current_rcw_command:.2f}".replace('.', 'p').replace('-', 'neg')
-                    bf_str = f"{current_bf_command:.2f}".replace('.', 'p').replace('-', 'neg')
-                    person_str = "T" if person_found_this_iteration else "F"
-                    # dx_for_filename is already formatted and safe
-
-                    detailed_frame_filename = f"rcw{rcw_str}_bf{bf_str}_person{person_str}_dx{dx_for_filename}_iter{i+1}.jpg"
-                    frame_saved_path = os.path.join(frames_dir, detailed_frame_filename)
-                    cv2.imwrite(frame_saved_path, frame_np)
-                    
-                    # Log the decision using the template and the new frame_saved_path
-                    if log_decision_message_template:
-                        log_decision_values['frame_path'] = frame_saved_path
-                        log_message(log_file_name, log_decision_message_template.format(**log_decision_values))
-
-                    log_message(log_file_name, f"Executing drone.move(rcw={current_rcw_command:.2f}, lr=0, ud=0, bf={current_bf_command:.2f}) (YT_RT)")
-                    drone.move(0, 0, 0, 0)
-                    drone.move(current_rcw_command, 0, 0, current_bf_command)
-
-                except Exception as e_iter:
-                    log_message(log_file_name, f"Error in YOLO real-time tracking iteration {i+1} (YT_RT): {str(e_iter)}. Frame: {frame_saved_path}")
+                except Exception as e:
+                    log_message(log_file_name, f"Error in YOLO tracking iteration {i+1} (YT): {str(e)}. Frame: {frame_saved_path}")
                     try:
-                        drone.move(0, 0, 0, 0) # Stop movement on iteration error
+                        drone.move(0, 0, 0, 0)
                     except Exception as stop_e:
-                        log_message(log_file_name, f"Error stopping drone after iteration error (YT_RT): {stop_e}")
+                        log_message(log_file_name, f"Error stopping drone after iteration error (YT): {stop_e}")
             
-            log_message(log_file_name, "Max iterations reached or tracking stopped (YT_RT).")
-            log_message(log_file_name, "Stopping drone and landing (YT_RT)...")
+            log_message(log_file_name, "Max iterations reached or tracking stopped (YT).")
+            log_message(log_file_name, "Landing the drone (YT)...")
             drone.move(0, 0, 0, 0) 
             land_result = drone.land(True)
-            log_message(log_file_name, f"Landing result (YT_RT): {land_result}")
-            return f"YOLO real-time person tracking completed after {i + 1} iterations (YT_RT)."
+            log_message(log_file_name, f"Landing result (YT): {land_result}")
+            return f"YOLO person tracking completed after {i + 1} iterations (YT)."
 
         except KeyboardInterrupt:
-            log_message(log_file_name, "User interrupted (Ctrl+C) (YT_RT). Stopping drone and landing...")
+            log_message(log_file_name, "User interrupted (Ctrl+C) (YT). Landing the drone...")
             try:
                 drone.move(0, 0, 0, 0)
                 land_result = drone.land(True)
-                log_message(log_file_name, f"Landing result (YT_RT): {land_result}")
+                log_message(log_file_name, f"Landing result (YT): {land_result}")
             except Exception as e_land:
-                log_message(log_file_name, f"Error during landing after interruption (YT_RT): {e_land}")
-            return "YOLO real-time person tracking interrupted by user (YT_RT). Drone landed."
+                log_message(log_file_name, f"Error during landing after interruption (YT): {e_land}")
+            return "YOLO person tracking interrupted by user (YT). Drone landed."
 
     except Exception as e:
-        log_message(log_file_name, f"An overall error occurred during the YOLO real-time track_person sequence (YT_RT): {e}")
+        log_message(log_file_name, f"An overall error occurred during the YOLO track_person sequence (YT): {e}")
         try:
-            log_message(log_file_name, "Attempting emergency stop and land (YT_RT)...")
+            log_message(log_file_name, "Attempting emergency land (YT)...")
             if yt_drone_connection:
                 yt_drone_connection.move(0, 0, 0, 0) 
                 yt_drone_connection.land(True)
         except Exception as land_e:
-            log_message(log_file_name, f"Failed to execute emergency land (YT_RT): {land_e}")
-        return f"Error during YOLO real-time tracking sequence (YT_RT): {e}" 
+            log_message(log_file_name, f"Failed to execute emergency land (YT): {land_e}")
+        return f"Error during YOLO tracking sequence (YT): {e}" 
 
 if __name__ == "__main__":
-    track_person_realtime_yolo()
+    track_person_and_rotate_yolo()

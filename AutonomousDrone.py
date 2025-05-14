@@ -15,7 +15,7 @@ import json # Added for handling YOLO model info (potentially)
 import uuid # Added for generating unique log file names
 
 # Import the new YOLO tracker function
-from yolo_tracker import track_person_and_rotate_yolo
+from yolo_tracker_old import track_person_and_rotate_yolo
 
 # Load environment variables from .env file
 load_dotenv()
