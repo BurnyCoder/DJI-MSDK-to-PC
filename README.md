@@ -143,9 +143,53 @@ Actually, what you want to do is jump to the python examples, rether then dig in
 The examples cover all the functionality you may wish from the project.
 The examples are also self explained and heavily commented.
 
-For start, go and run the `FPVDemo` - in this example you can control the drone (if everything is setup correctly),
+For start, you can go and run the `FPVDemo` - in this example you can control the drone (if everything is setup correctly),
 and fly it like a FPV game from your PC! use the keyboard to control the drone, and see its live image!
-Read the file description in the start for more details.
+Read the file description in the start for more details. 
+
+Make sure to add correct IP of android device:
+```python
+IP_ADDR = "192.168.1.115"
+```
+
+**Running the script:**
+Once the prerequisites are met, you can run the tracker:
+```bash
+python yolo_tracker.py
+```
+Ensure the MSDKRemote app is running on your phone, connected to the drone, and the control/video servers are active. Press 'x' in the terminal where the script is running to stop the drone and land it. 
+
+#### Running the YOLO Tracker (`yolo_tracker.py`)
+The `yolo_tracker.py` script provides an example of real-time person tracking using the drone and YOLO object detection.
+
+**Prerequisites:**
+1.  **Install Dependencies:** Make sure you have all the necessary Python packages installed. You can install them using the `requirements.txt` file:
+    ```bash
+    pip install -r requirements.txt
+    ```
+2.  **YOLO Model:** Ensure that the YOLO model file (`yolov8n.pt`) is present in the same directory as `yolo_tracker.py`, or update the path in the script if it's located elsewhere. The script will attempt to download it if not found, but an internet connection would be required.
+3.  **Environment Variables:** Configure the following environment variables before running the script. You can set them in your terminal session or by creating a `.env` file in the project root and using a library like `python-dotenv` (which is included in `requirements.txt`).
+
+    *   `IP_ADDR`: The IP address of the Android device running the MSDKRemote app (e.g., `192.168.1.115`).
+    *   `MOVE_VALUE` (optional, default: `0.015`): Factor for forward/backward movement when a person is centered.
+    *   `ROTATE_VALUE` (optional, default: `0.05`): Factor for yaw rotation when a person is off-center or when scanning.
+    *   `CENTER_THRESHOLD_PERCENT` (optional, default: `0.2`): Percentage of frame width to consider the person centered (e.g., 0.2 means +/- 20% from the center).
+    *   `PROCESSING_THREAD_INTERVAL` (optional, default: `0.1`): Target interval in seconds for the frame processing and YOLO detection thread.
+    *   `MOVEMENT_COMMAND_INTERVAL` (optional, default: `0.02`): Interval in seconds for sending movement commands to the drone.
+
+    Example (in bash/zsh):
+    ```bash
+    export IP_ADDR="YOUR_PHONE_IP_ADDRESS"
+    export MOVE_VALUE="0.015"
+    # ... and so on for other variables
+    ```
+
+**Running the script:**
+Once the prerequisites are met, you can run the tracker:
+```bash
+python yolo_tracker.py
+```
+Ensure the MSDKRemote app is running on your phone, connected to the drone, and the control/video servers are active. Press 'x' in the terminal where the script is running to stop the drone and land it. Logged frames with detection details will be saved in the `yolo_frames` directory.
 
 
 #### Control
@@ -247,35 +291,3 @@ They can be identified by the `parameter` in the information of a key.
 > Be careful when using undocumented keys! some are not working at all
 > (not imlemented yet and some just not supported on the device),
 > and with no information about them, thier behavior is truly undefined.
-
-### Running the YOLO Tracker (`yolo_tracker.py`)
-The `yolo_tracker.py` script provides an example of real-time person tracking using the drone and YOLO object detection.
-
-**Prerequisites:**
-1.  **Install Dependencies:** Make sure you have all the necessary Python packages installed. You can install them using the `requirements.txt` file:
-    ```bash
-    pip install -r requirements.txt
-    ```
-2.  **YOLO Model:** Ensure that the YOLO model file (`yolov8n.pt`) is present in the same directory as `yolo_tracker.py`, or update the path in the script if it's located elsewhere. The script will attempt to download it if not found, but an internet connection would be required.
-3.  **Environment Variables:** Configure the following environment variables before running the script. You can set them in your terminal session or by creating a `.env` file in the project root and using a library like `python-dotenv` (which is included in `requirements.txt`).
-
-    *   `IP_ADDR`: The IP address of the Android device running the MSDKRemote app (e.g., `192.168.1.115`).
-    *   `MOVE_VALUE` (optional, default: `0.015`): Factor for forward/backward movement when a person is centered.
-    *   `ROTATE_VALUE` (optional, default: `0.05`): Factor for yaw rotation when a person is off-center or when scanning.
-    *   `CENTER_THRESHOLD_PERCENT` (optional, default: `0.2`): Percentage of frame width to consider the person centered (e.g., 0.2 means +/- 20% from the center).
-    *   `PROCESSING_THREAD_INTERVAL` (optional, default: `0.1`): Target interval in seconds for the frame processing and YOLO detection thread.
-    *   `MOVEMENT_COMMAND_INTERVAL` (optional, default: `0.02`): Interval in seconds for sending movement commands to the drone.
-
-    Example (in bash/zsh):
-    ```bash
-    export IP_ADDR="YOUR_PHONE_IP_ADDRESS"
-    export MOVE_VALUE="0.015"
-    # ... and so on for other variables
-    ```
-
-**Running the script:**
-Once the prerequisites are met, you can run the tracker:
-```bash
-python yolo_tracker.py
-```
-Ensure the MSDKRemote app is running on your phone, connected to the drone, and the control/video servers are active. Press 'x' in the terminal where the script is running to stop the drone and land it. Logged frames with detection details will be saved in the `yolo_frames` directory.
