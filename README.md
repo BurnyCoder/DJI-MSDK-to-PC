@@ -11,6 +11,7 @@ from your PC you connect to your phone, and you have control over the drone usin
 Everything you need is set up and working in main branch.
 
 This project provide, but not limited to:
+* ***person tracking*** - using the YOLO object detection model to track people with the drone. The `yolo_tracker.py` example demonstrates real-time person detection and tracking using multi-threaded processing for smooth drone movement.
 * ***live video stream*** - from the drone up to your PC monitor, so you can see,
   or even better, process by code, the frames and control your drone by image navigation.
 * ***live control*** - you can send movements to the drone from your PC in real time,
