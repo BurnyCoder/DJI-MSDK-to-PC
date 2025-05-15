@@ -1,5 +1,5 @@
 # DJI-MSDK-to-PC / OpenDJI
-This project seek to give convenient way to control the `DJI mini 3 pro` drone (and similars)
+This project seek to give convenient way to control the `DJI Mini 4 pro` drone (and similars)
 without the need to make android app each time!
 
 The project consists of android app that you run on a phone connected to the remote controller,
