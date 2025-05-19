@@ -23,7 +23,7 @@ load_dotenv()
 # --- Configuration ---
 # Drone IP Address: fetched from .env or defaults if not set.
 # Ensure your drone is connected to this IP address.
-DRONE_IP_ADDR = os.getenv("DRONE_IP_ADDR", "192.168.1.115")
+# DRONE_IP_ADDR = os.getenv("DRONE_IP_ADDR", "192.168.1.115") # Removed
 # OpenAI API key from environment variable
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
@@ -31,7 +31,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 # --- Global Drone Connection ---
-drone_connection = None
+# drone_connection = None # Removed
 # --- Global YOLO Model ---
 yolo_model = None
 
@@ -52,40 +52,36 @@ def log_message(log_file_name: str, message: str):
         f.write(formatted_message + "\n")
     print(formatted_message)
 
-def initialize_drone_connection():
-    """Initializes the global drone connection."""
-    global drone_connection
-    if drone_connection is None:
-        try:
-            log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Attempting to connect to drone at IP: {DRONE_IP_ADDR}...")
-            drone_connection = OpenDJI(DRONE_IP_ADDR)
-            log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", "Successfully connected to the drone.")
-            # Optionally, enable control right after connection
-            # result = drone_connection.enableControl(True)
-            # print(f"Enable SDK control attempt post-connection. Drone response: {result}")
-        except Exception as e:
-            log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Failed to connect to the drone: {e}")
-            drone_connection = None # Ensure it's None on failure
-            # raise ConnectionError(f"Failed to initialize drone connection: {e}") # Or raise an error
-    return drone_connection
+def initialize_drone_connection(ip_address: str) -> OpenDJI | None:
+    """Initializes a drone connection to the given IP address.
+    
+    Args:
+        ip_address: The IP address of the drone.
+        
+    Returns:
+        An OpenDJI instance if connection is successful, None otherwise.
+    """
+    try:
+        log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Attempting to connect to drone at IP: {ip_address}...")
+        connection = OpenDJI(ip_address)
+        log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Successfully connected to the drone at {ip_address}.")
+        return connection
+    except Exception as e:
+        log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Failed to connect to the drone at {ip_address}: {e}")
+        return None
 
-def close_drone_connection():
-    """Closes the global drone connection if it's open."""
-    global drone_connection
-    if drone_connection:
+def close_drone_connection(drone_instance: OpenDJI):
+    """Closes the given drone connection if it's open."""
+    if drone_instance:
         try:
-            log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", "Closing drone connection...")
-            # result = drone_connection.disableControl(True) # Optionally disable control before closing
-            # print(f"Disable SDK control attempt pre-close. Drone response: {result}")
-            drone_connection.close()
-            log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", "Drone connection closed.")
+            log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Closing drone connection for {drone_instance.host_address}...")
+            drone_instance.close()
+            log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Drone connection for {drone_instance.host_address} closed.")
         except Exception as e:
-            log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Error closing drone connection: {e}")
-        finally:
-            drone_connection = None
+            log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Error closing drone connection for {drone_instance.host_address}: {e}")
 
 # Register the close function to be called on exit
-atexit.register(close_drone_connection)
+# atexit.register(close_drone_connection) # Removed due to refactoring for multiple drone instances
 
 # --- YOLO Model Initialization ---
 def initialize_yolo_model():
@@ -111,106 +107,107 @@ def initialize_yolo_model():
 
 # --- Drone Control Tools ---
 @tool
-def drone_takeoff() -> str:
+def _tool_drone_takeoff(drone_instance: OpenDJI) -> str:
     """
     Commands the drone to take off.
+
+    Args:
+        drone_instance: The OpenDJI instance for the connected drone.
 
     Returns:
         str: A message indicating the result of the takeoff command.
     """
-    global drone_connection
-    if drone_connection is None:
-        initialize_drone_connection()
-        if drone_connection is None:
-            return "Error: Drone connection not established. Cannot take off."
+    # global drone_connection # Removed
+    if drone_instance is None:
+        # initialize_drone_connection() # Removed
+        # if drone_connection is None: # Removed
+        return "Error: Drone instance not provided or not connected. Cannot take off."
     try:
-        result = drone_connection.enableControl(True)
+        result = drone_instance.enableControl(True)
         log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Enable SDK control command sent. Drone response: {result}")
-        result = drone_connection.takeoff(True)
+        result = drone_instance.takeoff(True)
         return f"Takeoff command sent. Drone response: {result}"
     except Exception as e:
         return f"Error during takeoff: {str(e)}"
 
 @tool
-def drone_land() -> str:
+def _tool_drone_land(drone_instance: OpenDJI) -> str:
     """
     Commands the drone to land.
+
+    Args:
+        drone_instance: The OpenDJI instance for the connected drone.
 
     Returns:
         str: A message indicating the result of the land command.
     """
-    global drone_connection
-    if drone_connection is None:
-        initialize_drone_connection()
-        if drone_connection is None:
-            return "Error: Drone connection not established. Cannot land."
+    # global drone_connection # Removed
+    if drone_instance is None:
+        # initialize_drone_connection() # Removed
+        # if drone_connection is None: # Removed
+        return "Error: Drone instance not provided or not connected. Cannot land."
     try:
-        result = drone_connection.enableControl(True)
+        result = drone_instance.enableControl(True)
         log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Enable SDK control command sent. Drone response: {result}")
-        result = drone_connection.land(True)
+        result = drone_instance.land(True)
         return f"Land command sent. Drone response: {result}"
     except Exception as e:
         return f"Error during land: {str(e)}"
 
 @tool
-def move_drone(rcw: float, du: float, lr: float, bf: float) -> str:
+def _tool_move_drone(drone_instance: OpenDJI, rcw: float, du: float, lr: float, bf: float) -> str:
     """
     Moves the drone with specified control values.
 
-    These values are typically small floats, e.g., between -0.5 and 0.5.
-    rcw: Rotational movement (rotate clockwise/anti-clockwise). Negative for anti-clockwise, positive for clockwise.
-    du: Vertical movement (down/up). Negative for down, positive for up.
-    lr: Sideways movement (left/right). Negative for left, positive for right.
-    bf: Forward/backward movement. Negative for backward, positive for forward.
-
     Args:
-        rcw: The rotation control value.
-        du: The up/down control value.
-        lr: The left/right control value.
-        bf: The forward/backward control value.
+        drone_instance: The OpenDJI instance for the connected drone.
+        rcw: Rotational movement (rotate clockwise/anti-clockwise).
+        du: Vertical movement (down/up).
+        lr: Sideways movement (left/right).
+        bf: Forward/backward movement.
 
     Returns:
         str: A message indicating the result of the move command.
     """
-    global drone_connection
-    if drone_connection is None:
-        initialize_drone_connection()
-        if drone_connection is None:
-            return "Error: Drone connection not established. Cannot move."
+    # global drone_connection # Removed
+    if drone_instance is None:
+        # initialize_drone_connection() # Removed
+        # if drone_connection is None: # Removed
+        return "Error: Drone instance not provided or not connected. Cannot move."
     try:
-        result = drone_connection.enableControl(True)
+        result = drone_instance.enableControl(True)
         log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Enable SDK control command sent. Drone response: {result}")
-        drone_connection.move(rcw, du, lr, bf)
+        drone_instance.move(rcw, du, lr, bf)
         return f"Move command sent: rcw={rcw}, du={du}, lr={lr}, bf={bf}"
     except Exception as e:
         return f"Error moving drone: {str(e)}"
 
 @tool
-def move_forward_one_meter() -> str:
+def _tool_move_forward_one_meter(drone_instance: OpenDJI) -> str:
     """
     Commands the drone to move forward approximately one meter.
 
-    Note: The actual distance is an estimate based on a fixed duration and speed.
-    It might vary depending on drone model, battery, and environmental conditions.
+    Args:
+        drone_instance: The OpenDJI instance for the connected drone.
 
     Returns:
         str: A message indicating the result of the command.
     """
-    global drone_connection
-    if drone_connection is None:
-        initialize_drone_connection()
-        if drone_connection is None:
-            return "Error: Drone connection not established. Cannot move forward."
+    # global drone_connection # Removed
+    if drone_instance is None:
+        # initialize_drone_connection() # Removed
+        # if drone_connection is None: # Removed
+        return "Error: Drone instance not provided or not connected. Cannot move forward."
 
     FORWARD_SPEED = 1 # Speed value between 0.0 and 1.0
     FORWARD_DURATION = 3 # Estimated duration in seconds to cover 1 meter at FORWARD_SPEED
 
     try:
-        result = drone_connection.enableControl(True)
+        result = drone_instance.enableControl(True)
         log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Enable SDK control command sent. Drone response: {result}")
         # --- Takeoff --- 
         log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", "Sending takeoff command...")
-        takeoff_result = drone_connection.takeoff(True)
+        takeoff_result = drone_instance.takeoff(True)
         log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Takeoff result: {takeoff_result}")
         if "error" in str(takeoff_result).lower() or "failed" in str(takeoff_result).lower():
             return f"Takeoff failed, cannot start tracking: {takeoff_result}"
@@ -222,123 +219,103 @@ def move_forward_one_meter() -> str:
         log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Attempting to move forward for {FORWARD_DURATION}s at speed {FORWARD_SPEED}...")
 
         # Start moving forward
-        drone_connection.move(rcw=0.0, du=0.0, lr=0.0, bf=FORWARD_SPEED)
+        drone_instance.move(rcw=0.0, du=0.0, lr=0.0, bf=FORWARD_SPEED)
         time.sleep(FORWARD_DURATION)
 
         # Stop moving
-        drone_connection.move(rcw=0.0, du=0.0, lr=0.0, bf=0.0)
+        drone_instance.move(rcw=0.0, du=0.0, lr=0.0, bf=0.0)
         log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", "Movement stopped.")
 
         time.sleep(1)
 
-        drone_connection.land(True)
-
-        # Optionally disable control if preferred after each discrete action
-        # disable_result = drone_connection.disableControl(True)
-        # print(f"Disable SDK control command sent. Drone response: {disable_result}")
+        drone_instance.land(True)
 
         return f"Move forward command executed for {FORWARD_DURATION} seconds."
     except Exception as e:
-        # Ensure movement stops in case of error during sleep
         try:
-            drone_connection.move(rcw=0.0, du=0.0, lr=0.0, bf=0.0)
+            drone_instance.move(rcw=0.0, du=0.0, lr=0.0, bf=0.0)
         except Exception as stop_e:
             log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Error stopping drone after move error: {stop_e}")
         return f"Error moving forward: {str(e)}"
 
 @tool
-def rotate_90_degrees_clockwise() -> str:
+def _tool_rotate_90_degrees_clockwise(drone_instance: OpenDJI) -> str:
     """
     Commands the drone to rotate approximately 90 degrees clockwise.
 
-    Note: The actual angle is an estimate based on a fixed duration and rotation speed.
-    It might vary depending on drone model, battery, and environmental conditions.
+    Args:
+        drone_instance: The OpenDJI instance for the connected drone.
 
     Returns:
         str: A message indicating the result of the command.
     """
-    global drone_connection
-    if drone_connection is None:
-        initialize_drone_connection()
-        if drone_connection is None:
-            return "Error: Drone connection not established. Cannot rotate."
+    # global drone_connection # Removed
+    if drone_instance is None:
+        # initialize_drone_connection() # Removed
+        # if drone_connection is None: # Removed
+        return "Error: Drone instance not provided or not connected. Cannot rotate."
 
     ROTATION_SPEED = 1 # Rotation speed value between 0.0 and 1.0
     ROTATION_DURATION = 1.5 # Estimated duration in seconds for 90 degrees at ROTATION_SPEED
 
     try:
-        result = drone_connection.enableControl(True)
+        result = drone_instance.enableControl(True)
         log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Enable SDK control command sent. Drone response: {result}")
         # --- Takeoff --- 
         log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", "Sending takeoff command...")
-        takeoff_result = drone_connection.takeoff(True)
+        takeoff_result = drone_instance.takeoff(True)
         log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Takeoff result: {takeoff_result}")
         if "error" in str(takeoff_result).lower() or "failed" in str(takeoff_result).lower():
             return f"Takeoff failed, cannot start tracking: {takeoff_result}"
         
-        # Give a brief moment for the drone to stabilize after takeoff
         log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", "Stabilizing after takeoff...")
         time.sleep(10)
 
         log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Attempting to rotate clockwise for {ROTATION_DURATION}s at speed {ROTATION_SPEED}...")
 
-        # Start rotating
-        drone_connection.move(rcw=-ROTATION_SPEED, du=0.0, lr=0.0, bf=0.0)
+        drone_instance.move(rcw=-ROTATION_SPEED, du=0.0, lr=0.0, bf=0.0)
         time.sleep(ROTATION_DURATION)
 
-        # Stop rotating
-        drone_connection.move(rcw=0.0, du=0.0, lr=0.0, bf=0.0)
+        drone_instance.move(rcw=0.0, du=0.0, lr=0.0, bf=0.0)
         log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", "Rotation stopped.")
 
         time.sleep(1)
 
-        drone_connection.land(True)
-
-        # Optionally disable control
-        # disable_result = drone_connection.disableControl(True)
-        # print(f"Disable SDK control command sent. Drone response: {disable_result}")
+        drone_instance.land(True)
 
         return f"Rotate clockwise command executed for {ROTATION_DURATION} seconds."
     except Exception as e:
-        # Ensure rotation stops in case of error during sleep
         try:
-            drone_connection.move(rcw=0.0, du=0.0, lr=0.0, bf=0.0)
+            drone_instance.move(rcw=0.0, du=0.0, lr=0.0, bf=0.0)
         except Exception as stop_e:
             log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", f"Error stopping drone after rotate error: {stop_e}")
         return f"Error rotating clockwise: {str(e)}"
 
 @tool
-def get_drone_frame_info() -> AgentImage:
+def _tool_get_drone_frame_info(drone_instance: OpenDJI) -> AgentImage | str:
     """
     Retrieves the current video frame from the drone as an AgentImage.
+
+    Args:
+        drone_instance: The OpenDJI instance for the connected drone.
 
     Returns:
         AgentImage: An AgentImage object containing the frame, or a string with an error message if unsuccessful.
     """
-    global drone_connection
-    if drone_connection is None:
-        initialize_drone_connection()
-        if drone_connection is None:
-            # This function is typed to return AgentImage, but error cases return str.
-            # This inconsistency was in the original code.
-            # For now, returning a string error message to match existing pattern.
-            return "Error: Drone connection not established. Cannot get frame."
+    # global drone_connection # Removed
+    if drone_instance is None:
+        # initialize_drone_connection() # Removed
+        # if drone_connection is None: # Removed
+        return "Error: Drone instance not provided or not connected. Cannot get frame."
     try:
-        # Assuming enableControl is not strictly needed for just getting a frame,
-        # or if it is, it should be managed at a higher level for continuous operations.
-        # If enableControl is needed here, it should be added:
-        # result = drone_connection.enableControl(True)
-        # print(f"Enable SDK control command sent for get_frame. Drone response: {result}")
-        
-        frame_np = drone_connection.getFrame() # Assuming this returns a NumPy array
+        frame_np = drone_instance.getFrame()
         if frame_np is None:
             log_message(f"drone_connection_log_{uuid.uuid4().hex[:8]}.txt", "No frame available from the drone.")
-            # Maintaining the string return type for error, as per original function's behavior.
             raise ValueError("No frame available from the drone.") 
 
-        pil_image = Image.fromarray(frame_np.astype(np.uint8)) # Ensure correct dtype for PIL
+        pil_image = Image.fromarray(frame_np.astype(np.uint8))
         return AgentImage(pil_image)
-    except ValueError as ve: # Catch the specific error for no frame
+    except ValueError as ve:
         return f"Error getting drone frame: {str(ve)}" 
     except Exception as e:
         return f"Error getting drone frame info: {str(e)}"
@@ -400,44 +377,41 @@ def analyze_image_with_yolo(image_frame, log_file_name: str):
         return None, f"Error during YOLO analysis: {e}"
 
 @tool
-def analyze_frame_with_yolo() -> str:
+def _tool_analyze_frame_with_yolo(drone_instance: OpenDJI) -> str:
     """
     Retrieves the current video frame from the drone and analyzes it using YOLOv8.
+
+    Args:
+        drone_instance: The OpenDJI instance for the connected drone.
 
     Returns:
         str: A summary of detected objects or an error message.
     """
-    global drone_connection
-    global yolo_model
-    # For standalone tool calls, generate a unique log file name.
+    # global drone_connection # Removed
+    # global yolo_model # yolo_model is still global and initialized by initialize_yolo_model()
     tool_log_file_name = f"analyze_frame_yolo_tool_log_{uuid.uuid4().hex[:8]}.txt"
 
-    # Ensure drone is connected
-    if drone_connection is None:
-        initialize_drone_connection() # Uses its own print statements, which is fine
-        if drone_connection is None:
-            # Log this specific failure for the tool's log
-            log_message(tool_log_file_name, "Error: Drone connection not established for analyze_frame_with_yolo.")
-            return "Error: Drone connection not established. Cannot get frame for YOLO analysis."
+    if drone_instance is None:
+        # initialize_drone_connection() # Removed
+        # if drone_connection is None: # Removed
+        log_message(tool_log_file_name, "Error: Drone instance not provided for analyze_frame_with_yolo.")
+        return "Error: Drone instance not provided. Cannot get frame for YOLO analysis."
 
-    # Ensure YOLO model is loaded
+    global yolo_model # yolo_model is global and initialized by initialize_yolo_model()
     if yolo_model is None:
-        initialize_yolo_model() # Uses its own print statements, which is fine
+        initialize_yolo_model()
         if yolo_model is None:
             log_message(tool_log_file_name, "Error: YOLO model failed to initialize for analyze_frame_with_yolo.")
             return "Error: YOLO model failed to initialize. Cannot analyze frame."
 
     try:
         log_message(tool_log_file_name, "Attempting to get frame for YOLO analysis...")
-        frame_np = drone_connection.getFrame()
+        frame_np = drone_instance.getFrame()
         if frame_np is None:
             log_message(tool_log_file_name, "Error: No frame available from the drone for YOLO analysis.")
             return "Error: No frame available from the drone for YOLO analysis."
 
-        # Analyze the frame using the dedicated YOLO function
-        # When called as a tool, analyze_image_with_yolo will use the log file name passed here.
         _yolo_results_obj, yolo_summary = analyze_image_with_yolo(frame_np, tool_log_file_name)
-        # We return the summary string, not the full results object
         return yolo_summary
 
     except Exception as e:
@@ -445,7 +419,7 @@ def analyze_frame_with_yolo() -> str:
         return f"Error during YOLO frame analysis: {str(e)}"
 
 @tool
-def track_person_and_rotate_llm(max_iterations: int = 30, seconds_per_iteration: float = 1) -> str:
+def _tool_track_person_and_rotate_llm(drone_instance: OpenDJI, max_iterations: int = 30, seconds_per_iteration: float = 1) -> str:
     """
     Commands the drone to take off, then continuously uses OpenAI's vision model
     to analyze the video feed and determine appropriate movements (rotation,
@@ -454,6 +428,7 @@ def track_person_and_rotate_llm(max_iterations: int = 30, seconds_per_iteration:
     Finally, commands the drone to land.
 
     Args:
+        drone_instance: The OpenDJI instance for the connected drone.
         max_iterations: The maximum number of tracking attempts.
         seconds_per_iteration: The target total cycle time for each iteration (includes processing, potential movement, and waiting). Minimum time between analyses.
 
@@ -461,16 +436,16 @@ def track_person_and_rotate_llm(max_iterations: int = 30, seconds_per_iteration:
         str: A message indicating the result of the tracking sequence.
     """
     print("Initiating automated person tracking sequence...")
-    global drone_connection
+    # global drone_connection # Removed
     
-    if drone_connection is None:
-        initialize_drone_connection()
-        if drone_connection is None:
-            return "Error: Drone connection not established. Cannot start tracking."
+    if drone_instance is None:
+        # initialize_drone_connection() # Removed
+        # if drone_connection is None: # Removed
+        return "Error: Drone instance not provided or not connected. Cannot start tracking."
 
     try:
-        # Use the global drone_connection
-        drone = drone_connection 
+        # Use the provided drone_instance
+        drone = drone_instance 
         
         result = drone.enableControl(True)
         print(f"Enable SDK control command sent. Drone response: {result}")
@@ -643,29 +618,106 @@ Examples:
 
 class AutonomousDroneAgent:
     def __init__(self):
-        # --- Agent Initialization ---
-        # Initialize the LiteLLMModel
-        # Using OpenRouter with Google Gemini.
         self.model = LiteLLMModel(
-            model_id="openrouter/google/gemini-2.5-pro-exp-03-25",
+            model_id="openrouter/google/gemini-2.5-pro-exp-03-25", # Example model
             temperature=0.5,
-            max_tokens=50000
+            max_tokens=50000 # Increased token limit
         )
 
-        # Ensure drone connection is initialized when agent is created
-        initialize_drone_connection() 
-        if drone_connection is None:
-            # This is a critical failure for the agent if it relies on the drone.
-            # Consider how to handle this - maybe raise an exception or log a severe warning.
-            print("CRITICAL: Drone connection failed to initialize for AutonomousDroneAgent.")
-
-        # Ensure YOLO model is initialized when agent is created
-        initialize_yolo_model()
+        self.drone_instances: dict[str, OpenDJI] = {}
+        self.active_drone_ip: str | None = None
+        
+        # Ensure YOLO model is initialized when agent is created (if still needed globally)
+        # Depending on usage, YOLO model could also be managed per drone or on demand.
+        initialize_yolo_model() 
         if yolo_model is None:
-            print("WARNING: YOLO model failed to initialize for AutonomousDroneAgent. YOLO analysis will not be available.")
+            print("WARNING: Global YOLO model failed to initialize for AutonomousDroneAgent. YOLO analysis might not be available or might need drone-specific initialization.")
 
-        # Create the ToolCallingAgent with the defined drone tools
-        # The tools are now defined outside the class
+        # Register the disconnect_all_drones method to be called on exit
+        atexit.register(self.disconnect_all_drones)
+
+        # Define wrapper methods for tools within the agent
+        # These wrappers will be passed to ToolCallingAgent
+
+        @tool
+        def drone_takeoff() -> str:
+            drone = self.get_active_drone_instance()
+            if not drone:
+                return "Error: No active drone selected or connected. Cannot take off."
+            return _tool_drone_takeoff(drone)
+
+        @tool
+        def drone_land() -> str:
+            drone = self.get_active_drone_instance()
+            if not drone:
+                return "Error: No active drone selected or connected. Cannot land."
+            return _tool_drone_land(drone)
+
+        @tool
+        def move_drone(rcw: float, du: float, lr: float, bf: float) -> str:
+            drone = self.get_active_drone_instance()
+            if not drone:
+                return "Error: No active drone selected or connected. Cannot move."
+            return _tool_move_drone(drone, rcw, du, lr, bf)
+
+        @tool
+        def move_forward_one_meter() -> str:
+            drone = self.get_active_drone_instance()
+            if not drone:
+                return "Error: No active drone selected or connected. Cannot move forward."
+            return _tool_move_forward_one_meter(drone)
+
+        @tool
+        def rotate_90_degrees_clockwise() -> str:
+            drone = self.get_active_drone_instance()
+            if not drone:
+                return "Error: No active drone selected or connected. Cannot rotate."
+            return _tool_rotate_90_degrees_clockwise(drone)
+
+        @tool
+        def get_drone_frame_info() -> AgentImage | str: # Ensure return type matches underlying tool
+            drone = self.get_active_drone_instance()
+            if not drone:
+                return "Error: No active drone selected or connected. Cannot get frame."
+            return _tool_get_drone_frame_info(drone)
+
+        @tool
+        def analyze_frame_with_yolo() -> str:
+            drone = self.get_active_drone_instance()
+            if not drone:
+                return "Error: No active drone selected or connected. Cannot analyze frame."
+            # _tool_analyze_frame_with_yolo itself handles yolo model initialization check
+            return _tool_analyze_frame_with_yolo(drone)
+
+        @tool
+        def track_person_and_rotate_llm(max_iterations: int = 30, seconds_per_iteration: float = 1) -> str:
+            drone = self.get_active_drone_instance()
+            if not drone:
+                return "Error: No active drone selected or connected. Cannot track person (LLM)."
+            return _tool_track_person_and_rotate_llm(drone, max_iterations, seconds_per_iteration)
+        
+        # Placeholder for the imported yolo_tracker tool
+        # This assumes yolo_tracker_old.track_person_and_rotate_yolo will be refactored
+        # to accept a drone_instance as its first argument.
+        @tool
+        def track_person_and_rotate_yolo_wrapper(max_frames: int = 100, target_name: str = "person", confidence_threshold: float = 0.6, log_to_file: bool = True) -> str:
+            drone = self.get_active_drone_instance()
+            if not drone:
+                return "Error: No active drone selected or connected. Cannot track with YOLO."
+            try:
+                # Dynamically import here if preferred, or ensure it's imported at the top
+                from yolo_tracker_old import track_person_and_rotate_yolo as yolo_tracker_tool
+                # The original tool from yolo_tracker_old.py needs to be refactored
+                # to accept drone_instance as the first argument.
+                # For now, this is a placeholder call.
+                # return yolo_tracker_tool(drone, max_frames, target_name, confidence_threshold, log_to_file)
+                return f"YOLO tracking (external tool) would be called for drone {self.active_drone_ip}. (Needs refactor in yolo_tracker_old.py)"
+            except ImportError:
+                return "Error: yolo_tracker_old.py or its track_person_and_rotate_yolo tool not found or not refactored."
+            except TypeError as te: # Catch if the underlying tool doesn't accept drone_instance yet
+                 return f"Error calling yolo_tracker_tool: {te}. It might not be refactored to accept a drone instance."
+
+
         self.drone_agent = ToolCallingAgent(
             tools=[
                 drone_takeoff,
@@ -676,78 +728,161 @@ class AutonomousDroneAgent:
                 get_drone_frame_info,
                 analyze_frame_with_yolo,
                 track_person_and_rotate_llm,
-                track_person_and_rotate_yolo,
-                # enable_drone_sdk_control,
-                # disable_drone_sdk_control
+                track_person_and_rotate_yolo_wrapper, # Use the wrapper
             ],
             model=self.model
         )
 
+    def connect_to_drone(self, ip_address: str, make_active: bool = True) -> bool:
+        """Connects to a drone at the given IP address."""
+        if ip_address in self.drone_instances:
+            print(f"Already connected to drone at {ip_address}.")
+            if make_active:
+                self.active_drone_ip = ip_address
+                print(f"Drone at {ip_address} is now active.")
+            return True
+
+        print(f"Attempting to connect to drone at {ip_address}...")
+        connection = initialize_drone_connection(ip_address)
+        if connection:
+            self.drone_instances[ip_address] = connection
+            print(f"Successfully connected to drone at {ip_address}.")
+            if make_active or not self.active_drone_ip:
+                self.active_drone_ip = ip_address
+                print(f"Drone at {ip_address} is now active.")
+            return True
+        else:
+            print(f"Failed to connect to drone at {ip_address}.")
+            return False
+
+    def set_active_drone(self, ip_address: str) -> bool:
+        """Sets the active drone for commands."""
+        if ip_address in self.drone_instances:
+            self.active_drone_ip = ip_address
+            print(f"Drone at {ip_address} is now the active drone.")
+            return True
+        else:
+            print(f"Drone at {ip_address} is not connected. Cannot set as active.")
+            return False
+
+    def get_active_drone_instance(self) -> OpenDJI | None:
+        """Returns the OpenDJI instance for the currently active drone."""
+        if self.active_drone_ip and self.active_drone_ip in self.drone_instances:
+            return self.drone_instances[self.active_drone_ip]
+        # print("No active drone selected or the active IP is not in connected instances.")
+        return None
+        
+    def list_connected_drones(self) -> list[str]:
+        """Lists the IP addresses of all currently connected drones."""
+        return list(self.drone_instances.keys())
+
+    def disconnect_drone(self, ip_address: str, remove_active: bool = True):
+        """Disconnects a specific drone."""
+        if ip_address in self.drone_instances:
+            print(f"Disconnecting drone at {ip_address}...")
+            connection = self.drone_instances.pop(ip_address)
+            close_drone_connection(connection) # Use the refactored close function
+            print(f"Drone at {ip_address} disconnected.")
+            if remove_active and self.active_drone_ip == ip_address:
+                self.active_drone_ip = None
+                print("Active drone was disconnected.")
+                # Optionally, set another drone as active if available
+                if self.drone_instances:
+                    new_active_ip = list(self.drone_instances.keys())[0]
+                    self.set_active_drone(new_active_ip)
+        else:
+            print(f"Drone at {ip_address} not found in connected instances.")
+
+    def disconnect_all_drones(self):
+        """Disconnects all connected drones."""
+        print("Disconnecting all drones...")
+        ips_to_disconnect = list(self.drone_instances.keys()) # Avoid modifying dict while iterating
+        for ip_address in ips_to_disconnect:
+            self.disconnect_drone(ip_address, remove_active=False) # remove_active=False to avoid issues if it's the current active one
+        self.active_drone_ip = None
+        print("All drones disconnected.")
+
+
     def run_query(self, query: str) -> str:
         """
         Runs a query using the initialized drone agent.
+        Ensures an active drone is selected if the query implies drone action.
         """
-        print(f"Sending query to agent: '{query}'")
+        if not self.get_active_drone_instance():
+             # Heuristic: if query mentions common drone actions, and no drone is active, prompt.
+            action_keywords = ["take off", "land", "move", "rotate", "frame", "track", "fly", "drone"]
+            if any(keyword in query.lower() for keyword in action_keywords):
+                if self.drone_instances:
+                    available_drones = self.list_connected_drones()
+                    return (f"Error: The query seems to require drone action, but no drone is active. "
+                            f"Please set an active drone. Connected drones: {available_drones}. "
+                            f"Example: 'Connect to drone 192.168.1.120' or 'Set active drone 192.168.1.120'.")
+                else:
+                    return ("Error: The query seems to require drone action, but no drones are connected. "
+                            "Please connect to a drone first. Example: 'Connect to drone 192.168.1.120'.")
+
+        print(f"Sending query to agent for active drone {self.active_drone_ip or 'None'}: '{query}'")
         try:
             response = self.drone_agent.run(query)
-            print(f"Agent response:\n{response}")
+            # print(f"Agent response:\n{response}") # Already printed by run_query in example
             return response
         except Exception as e:
             error_message = f"Error running agent query: {e}"
             print(error_message)
-            print("Please ensure the drone is connected and OpenDJI is set up correctly.")
-            print(f"Also, check your OPENROUTER_API_KEY (if required) and DRONE_IP_ADDR (current: {DRONE_IP_ADDR}) in the .env file.")
+            # print(f"Please ensure the drone is connected and OpenDJI is set up correctly.")
+            # print(f"Also, check your OPENROUTER_API_KEY (if required) and DRONE_IP_ADDR (current: {DRONE_IP_ADDR}) in the .env file.")
             return error_message
 
 # --- Example Usage (Optional) ---
 if __name__ == "__main__":
     print("Initializing Autonomous Drone Agent...")
+    agent_instance = AutonomousDroneAgent()
+    print("Autonomous Drone Agent Initialized.")
+
+    # Example IPs - replace with your actual drone IPs
+    drone1_ip = os.getenv("DRONE_IP_1", "192.168.1.115") 
+    drone2_ip = os.getenv("DRONE_IP_2", "192.168.1.120") # Example for a second drone
+
     try:
-        # Attempt to initialize connection first, as it's critical
-        if initialize_drone_connection() is None:
-            print("Failed to connect to the drone. Aborting example usage.")
-            # Optionally, exit here if connection is mandatory for any further steps
-            # exit(1) 
-        else:
-            print(f"Drone connection established/verified at IP: {DRONE_IP_ADDR}")
-            print("Ensure your drone is powered on and connected to the network.")
+        # Connect to the first drone
+        if agent_instance.connect_to_drone(drone1_ip):
+            print(f"Successfully connected to and activated drone at {drone1_ip}")
 
-            # Initialize agent after ensuring (or attempting) connection
-            agent_instance = AutonomousDroneAgent()
-            print("Autonomous Drone Agent Initialized.")
+            # Example: Run a query for the first drone
+            # print("\n--- Running Query on Drone 1 ---")
+            # response = agent_instance.run_query(f"Take off the drone at {agent_instance.active_drone_ip}, fly forward a bit, then land.")
+            # print(f"Response for {agent_instance.active_drone_ip}:\n{response}")
+
+            # If you have a second drone and want to test switching:
+            # if agent_instance.connect_to_drone(drone2_ip, make_active=True): # Connect and make active
+            # print(f"Successfully connected to and activated drone at {drone2_ip}")
+            # response_drone2 = agent_instance.run_query("What is the current frame from the drone?")
+            # print(f"Response for {drone2_ip}:\n{response_drone2}")
+
+            # Switch back to drone 1 if drone 2 was activated
+            # if agent_instance.set_active_drone(drone1_ip):
+            # response_drone1_again = agent_instance.run_query("Rotate the drone 90 degrees clockwise.")
+            # print(f"Response for {drone1_ip} (again):\n{response_drone1_again}")
             
-            # Uncomment one of these to test (requires drone connection)
-            print("\n--- Running Example ---")
+            # Example: YOLO Person Tracking on the active drone
+            print("\n--- Running Example: YOLO Person Tracking (using wrapper) ---")
+            # This uses the track_person_and_rotate_yolo_wrapper
+            # The underlying yolo_tracker_old.track_person_and_rotate_yolo needs to be refactored
+            # to accept drone_instance as the first argument.
+            response = agent_instance.run_query("Use YOLO to track a person.") 
+            print(f"Response for active drone ({agent_instance.active_drone_ip}):\n{response}")
 
-            # Example: Move forward and rotate
-            # print("\n--- Running Example: Move Forward ---")
-            # move_forward_one_meter()
+        else:
+            print(f"Failed to connect to drone at {drone1_ip}. Aborting example usage for this drone.")
+            
+        # Example: list connected drones
+        print(f"Currently connected drones: {agent_instance.list_connected_drones()}")
 
-            # print("\n--- Running Example: Rotate ---")
-            #rotate_90_degrees_clockwise()
 
-            # Option 2 example:
-            # print("\n--- Running Example: Person Tracking ---")
-            # result = track_person_and_rotate_llm(max_iterations=100000)
-            # print(result)
-
-            # Option 3 example:
-            # print("\n--- Running Example: Query Agent ---")
-            # response = agent_instance.run_query("Take off the drone and find a person.")
-            # print(response)
-
-            # Option 4 example: YOLO Tracking
-            print("\n--- Running Example: YOLO Person Tracking ---")
-            response = agent_instance.run_query("Use YOLO to track a person.")
-            print(response)
-
-    except ValueError as ve:
-        print(f"Initialization Error: {ve}")
     except Exception as e:
-        print(f"An unexpected error occurred during initialization or example usage: {e}")
+        print(f"An unexpected error occurred during example usage: {e}")
     finally:
-        # Explicitly close connection here if not relying solely on atexit,
-        # or if specific cleanup order is needed before other atexit handlers.
-        # However, atexit should handle it.
-        # close_drone_connection() # This might be redundant due to atexit
-        print("Application finished.")
+        # The atexit handler in __init__ will call disconnect_all_drones()
+        # You can also call it explicitly if needed earlier:
+        # agent_instance.disconnect_all_drones() 
+        print("Application finished. Drones should be disconnected by atexit handler.")

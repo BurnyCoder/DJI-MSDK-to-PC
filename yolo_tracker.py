@@ -29,11 +29,11 @@ import threading
 
 # IP address of the connected android device
 # IP_ADDR = os.environ.get("IP_ADDR", "192.168.1.115")
-IP_ADDR = os.environ.get("IP_ADDR", "100.93.62.70")
+IP_ADDR = os.environ.get("IP_ADDR", "100.93.47.145")
 
 # Movement factors
-MOVE_VALUE = float(os.environ.get("MOVE_VALUE", "0.015"))
-ROTATE_VALUE = float(os.environ.get("ROTATE_VALUE", "0.05"))
+MOVE_VALUE = float(os.environ.get("MOVE_VALUE", "0.1"))
+ROTATE_VALUE = float(os.environ.get("ROTATE_VALUE", "0.2"))
 CENTER_THRESHOLD_PERCENT = float(os.environ.get("CENTER_THRESHOLD_PERCENT", "0.2"))
 
 # Thread timing constants
