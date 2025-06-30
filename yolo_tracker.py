@@ -66,10 +66,10 @@ except Exception as e:
 # --- Shared data between threads ---
 shared_data_lock = threading.Lock()
 latest_movement_commands = {
-    "yaw": 0.0,
-    "ascent": 0.0,
-    "roll": 0.0,
     "pitch": 0.0,
+    "yaw": 0.0,
+    "roll": 0.0,
+    "ascent": 0.0,
     "person_found": False # Added for logging in movement thread
 }
 stop_threads_event = threading.Event()
@@ -88,10 +88,10 @@ def frame_processing_and_yolo_thread_func(drone_obj, yolo_model_obj, blank_frame
         frame_for_processing = blank_frame_img.copy() if current_frame_data is None else current_frame_data.copy()
 
         # Local movement variables for this cycle's calculation
-        calculated_yaw = 0.0
-        calculated_ascent = 0.0 # Assuming ascent and roll are not dynamically changed by YOLO yet
-        calculated_roll = 0.0
         calculated_pitch = 0.0
+        calculated_yaw = 0.0
+        calculated_roll = 0.0
+        calculated_ascent = 0.0 # Assuming ascent and roll are not dynamically changed by YOLO yet
         dx_val_for_filename = None
         person_detected_this_frame = False
 
@@ -134,10 +134,10 @@ def frame_processing_and_yolo_thread_func(drone_obj, yolo_model_obj, blank_frame
         
         # Update shared movement commands
         with shared_data_lock:
-            latest_movement_commands["yaw"] = calculated_yaw
-            latest_movement_commands["ascent"] = calculated_ascent
-            latest_movement_commands["roll"] = calculated_roll
             latest_movement_commands["pitch"] = calculated_pitch
+            latest_movement_commands["yaw"] = calculated_yaw
+            latest_movement_commands["roll"] = calculated_roll
+            latest_movement_commands["ascent"] = calculated_ascent
             latest_movement_commands["person_found"] = person_detected_this_frame
 
         # Image Saving Logic (using calculated values before lock or from local vars)
@@ -169,17 +169,17 @@ def frame_processing_and_yolo_thread_func(drone_obj, yolo_model_obj, blank_frame
 def drone_movement_thread_func(drone_obj):
     print("Movement thread started.")
     while not stop_threads_event.is_set():
-        local_yaw, local_ascent, local_roll, local_pitch, local_person_found = 0.0, 0.0, 0.0, 0.0, False
+        local_pitch, local_yaw, local_roll, local_ascent, local_person_found = 0.0, 0.0, 0.0, 0.0, False
         with shared_data_lock:
-            local_yaw = latest_movement_commands["yaw"]
-            local_ascent = latest_movement_commands["ascent"]
-            local_roll = latest_movement_commands["roll"]
             local_pitch = latest_movement_commands["pitch"]
+            local_yaw = latest_movement_commands["yaw"]
+            local_roll = latest_movement_commands["roll"]
+            local_ascent = latest_movement_commands["ascent"]
             local_person_found = latest_movement_commands["person_found"] # Get for logging
 
         # Print current movement values being sent to the drone
-        print(f"Movement: yaw={local_yaw:.2f}, ascent={local_ascent:.2f}, roll={local_roll:.2f}, pitch={local_pitch:.2f}, person_found={local_person_found}")
-        drone_obj.move(local_yaw, local_ascent, local_roll, local_pitch)
+        print(f"Movement: pitch={local_pitch:.2f}, yaw={local_yaw:.2f}, roll={local_roll:.2f}, ascent={local_ascent:.2f}, person_found={local_person_found}")
+        drone_obj.move(local_pitch, local_yaw, local_roll, local_ascent)
         time.sleep(MOVEMENT_COMMAND_INTERVAL) # Send command every 0.02 seconds
     print("Movement thread stopped.")
 
