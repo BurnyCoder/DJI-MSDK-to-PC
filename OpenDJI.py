@@ -146,16 +146,16 @@ class OpenDJI:
         sock.send(bytes(command + '\r\n', 'utf-8'))
 
 
-    def move(self, rcw : float, du : float, lr : float, bf : float, get_result: bool = False) -> str | None:
+    def move(self, pitch: float, yaw: float, roll: float, ascent: float, get_result: bool = False) -> str | None:
         """
         Set drone movements forces - parameters equal to control stick movement.
         All values are real numbers between -1.0 to 1.0, where 0.0 is no movement.
 
         Args:
-            rcw (float): rotate clock wise (1.0), or anti clockwise (-1.0).
-            du (float): move downward (-1.0) or upward (1.0).
-            lr (float): move to the left (-1.0) or to the right (1.0).
-            bf (float): move backward (-1.0) or forward (1.0).
+            pitch (float): move backward (-1.0) or forward (1.0).
+            yaw (float): rotate clock wise (1.0), or anti clockwise (-1.0).
+            roll (float): move to the left (-1.0) or to the right (1.0).
+            ascent (float): move downward (-1.0) or upward (1.0).
             get_result (bool): to flag if to wait for response from the server.
         
         Return:
@@ -165,10 +165,10 @@ class OpenDJI:
             return min(1.0, max(-1.0, value))
         
         # Make sure the values are between -1.0 and 1.0
-        rcw = clip1(rcw)
-        du = clip1(du)
-        lr = clip1(lr)
-        bf = clip1(bf)
+        rcw = clip1(yaw)
+        du = clip1(ascent)
+        lr = clip1(roll)
+        bf = clip1(pitch)
 
         # Send the command
         command = f'rc {rcw:.4f} {du:.2f} {lr:.2f} {bf:.2f}'

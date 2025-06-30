@@ -48,27 +48,53 @@ with OpenDJI(IP_ADDR) as drone:
         time.sleep(10)
         print("Takeoff complete.")
 
-        print("Starting 5-second forward flight and capturing frames.")
+        print("Starting 15-second forward flight and capturing frames.")
         captured_frames = []
-        
-        # Start moving forward
-        drone.move(pitch=MOVE_VALUE, yaw=0, roll=0, ascent=0)
 
-        # Capture frames for 5 seconds, one per second
-        for i in range(5):
-            time.sleep(1) # Wait for 1 second
-            frame = drone.getFrame()
-            if frame is not None and frame.shape[0] > 0 and frame.shape[1] > 0:
-                captured_frames.append(frame)
-                print(f"Frame {i+1} captured.")
-            else:
-                print(f"Could not capture frame {i+1}.")
-        
+        # Loop for 15 seconds, sending command every 20ms
+        flight_duration = 15  # seconds
+        command_interval = 0.02  # seconds
+        num_iterations = int(flight_duration / command_interval)
+        capture_interval = int(1 / command_interval)
+
+        for i in range(num_iterations):
+            drone.move(pitch=MOVE_VALUE, yaw=0, roll=0, ascent=0)
+
+            # Capture a frame every second
+            if (i + 1) % capture_interval == 0:
+                frame = drone.getFrame()
+                if frame is not None and frame.shape[0] > 0 and frame.shape[1] > 0:
+                    captured_frames.append(frame)
+                    print(f"Frame {len(captured_frames)} captured.")
+                else:
+                    print(f"Could not capture frame {len(captured_frames) + 1}.")
+            
+            time.sleep(command_interval)
+
         # Stop the drone
         drone.move(0, 0, 0, 0)
         print(f"Forward flight complete. Captured {len(captured_frames)} frames.")
 
+        print("Landing drone...")
+        drone.land(True)
+        print("Drone landed.")
+        
         if captured_frames:
+            # Save frames to files
+            frames_dir = "forward_analysis_frames"
+            if not os.path.exists(frames_dir):
+                os.makedirs(frames_dir)
+            
+            print(f"Saving {len(captured_frames)} frames to '{frames_dir}' directory...")
+            for i, frame in enumerate(captured_frames):
+                try:
+                    pil_image = Image.fromarray(frame.astype(np.uint8))
+                    file_path = os.path.join(frames_dir, f"frame_{i+1}.png")
+                    pil_image.save(file_path)
+                except Exception as e:
+                    print(f"Error saving frame {i+1}: {e}")
+            print("All frames saved.")
+
             print("Sending frames to OpenAI for analysis...")
             
             base64_frames = []
@@ -108,15 +134,13 @@ with OpenDJI(IP_ADDR) as drone:
                 print("\n--- OpenAI Analysis ---")
                 print(analysis_result)
                 print("-----------------------\n")
-
+                
                 # Write the analysis to a file
                 with open("analysis.txt", "w", encoding="utf-8") as f:
                     f.write(analysis_result)
                 print("Analysis saved to analysis.txt")
             except Exception as e:
                 print(f"Error during OpenAI API call: {e}")
+                
 
 
-    print("Landing drone...")
-    drone.land(True)
-    print("Drone landed. Exiting program.")
