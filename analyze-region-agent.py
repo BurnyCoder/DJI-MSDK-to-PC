@@ -205,6 +205,22 @@ class DroneAgentController:
         return "Analysis is complete. The result has been saved to analysis.txt."
 
 
+def run_test_flight_pattern(controller: DroneAgentController):
+    """Runs a pre-defined flight pattern for testing."""
+    print("Running test flight pattern...")
+    print("1. Flying forward.")
+    controller.fly_forward_and_capture_frames()
+    print("2. Flying forward again.")
+    controller.fly_forward_and_capture_frames()
+    print("3. Rotating 90 degrees.")
+    controller.rotate_90_degrees()
+    print("4. Flying forward.")
+    controller.fly_forward_and_capture_frames()
+    print("5. Rotating 90 degrees.")
+    controller.rotate_90_degrees()
+    print("Test flight pattern complete.")
+
+
 # Connect to the drone
 with OpenDJI(IP_ADDR) as drone:
     if openai_client is None:
@@ -215,41 +231,43 @@ with OpenDJI(IP_ADDR) as drone:
         # Takeoff before executing agent tasks
         controller.takeoff()
 
-        @tool
-        def fly_forward_and_capture_frames():
-            """
-            Flies the drone forward for 10 seconds and captures one frame per second.
-            The captured frames are stored internally for later analysis.
-            """
-            return controller.fly_forward_and_capture_frames()
+        # @tool
+        # def fly_forward_and_capture_frames():
+        #     """
+        #     Flies the drone forward for 10 seconds and captures one frame per second.
+        #     The captured frames are stored internally for later analysis.
+        #     """
+        #     return controller.fly_forward_and_capture_frames()
 
-        @tool
-        def rotate_90_degrees():
-            """Rotates the drone 90 degrees clockwise."""
-            return controller.rotate_90_degrees()
+        # @tool
+        # def rotate_90_degrees():
+        #     """Rotates the drone 90 degrees clockwise."""
+        #     return controller.rotate_90_degrees()
 
-        @tool
-        def analyze_captured_frames():
-            """
-            Analyzes the frames captured during the flight using OpenAI.
-            This tool must be used after flying and capturing frames.
-            """
-            return controller.analyze_captured_frames()
+        # @tool
+        # def analyze_captured_frames():
+        #     """
+        #     Analyzes the frames captured during the flight using OpenAI.
+        #     This tool must be used after flying and capturing frames.
+        #     """
+        #     return controller.analyze_captured_frames()
 
-        tools = [
-            fly_forward_and_capture_frames,
-            rotate_90_degrees,
-            analyze_captured_frames,
-        ]
+        # tools = [
+        #     fly_forward_and_capture_frames,
+        #     rotate_90_degrees,
+        #     analyze_captured_frames,
+        # ]
 
-        agent = CodeAgent(
-            tools=tools,
-            model="gpt-4o",
-        )
+        # agent = CodeAgent(
+        #     tools=tools,
+        #     model="gpt-4o",
+        # )
 
-        prompt = "You are a drone operations agent. Your goal is to safely fly a drone to collect visual data and then analyze it. The drone is already flying. Your task is to fly forward once, rotate 90 degrees, and then analyze the captured frames."
-        print(f"Agent executing prompt: '{prompt}'")
-        agent.run(prompt)
+        # prompt = "You are a drone operations agent. Your goal is to safely fly a drone to collect visual data and then analyze it. The drone is already flying. Your task is to fly forward once, rotate 90 degrees, and then analyze the captured frames."
+        # print(f"Agent executing prompt: '{prompt}'")
+        # agent.run(prompt)
+        
+        run_test_flight_pattern(controller)
         
         # Land after executing agent tasks
         controller.land()
