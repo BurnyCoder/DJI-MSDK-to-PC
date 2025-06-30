@@ -173,6 +173,22 @@ class DroneAgentController:
         self.captured_frames = fly_forward_and_capture(self.drone, flight_duration=10)
         return f"Successfully captured {len(self.captured_frames)} frames."
 
+    def rotate_90_degrees(self):
+        """Rotates the drone 90 degrees clockwise."""
+        print("Rotating 90 degrees...")
+        rotation_duration = 2  # seconds, this is a guess, may need tuning
+        command_interval = 0.02  # seconds
+        num_iterations = int(rotation_duration / command_interval)
+
+        for _ in range(num_iterations):
+            self.drone.move(pitch=0, yaw=1.0, roll=0, ascent=0)
+            time.sleep(command_interval)
+        
+        # Stop rotation
+        self.drone.move(0, 0, 0, 0)
+        print("Rotation complete.")
+        return "Rotated 90 degrees."
+
     def analyze_captured_frames(self):
         """
         Analyzes the frames captured during the flight using OpenAI.
@@ -208,6 +224,11 @@ with OpenDJI(IP_ADDR) as drone:
             return controller.fly_forward_and_capture_frames()
 
         @tool
+        def rotate_90_degrees():
+            """Rotates the drone 90 degrees clockwise."""
+            return controller.rotate_90_degrees()
+
+        @tool
         def analyze_captured_frames():
             """
             Analyzes the frames captured during the flight using OpenAI.
@@ -217,6 +238,7 @@ with OpenDJI(IP_ADDR) as drone:
 
         tools = [
             fly_forward_and_capture_frames,
+            rotate_90_degrees,
             analyze_captured_frames,
         ]
 
@@ -225,7 +247,7 @@ with OpenDJI(IP_ADDR) as drone:
             model="gpt-4o",
         )
 
-        prompt = "You are a drone operations agent. Your goal is to safely fly a drone to collect visual data and then analyze it. The drone is already flying. Your task is to fly forward once, and then analyze the captured frames."
+        prompt = "You are a drone operations agent. Your goal is to safely fly a drone to collect visual data and then analyze it. The drone is already flying. Your task is to fly forward once, rotate 90 degrees, and then analyze the captured frames."
         print(f"Agent executing prompt: '{prompt}'")
         agent.run(prompt)
         
