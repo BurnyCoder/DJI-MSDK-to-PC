@@ -29,7 +29,9 @@ import threading
 
 # IP address of the connected android device
 # IP_ADDR = os.environ.get("IP_ADDR", "192.168.1.115")
-IP_ADDR = os.environ.get("IP_ADDR", "100.93.47.145")
+# IP_ADDR = os.environ.get("IP_ADDR", "100.93.47.145")
+# IP_ADDR = os.environ.get("IP_ADDR", "172.18.112.1")
+IP_ADDR = os.environ.get("IP_ADDR", "100.85.47.22")
 
 # Movement factors
 MOVE_VALUE = float(os.environ.get("MOVE_VALUE", "0.1"))

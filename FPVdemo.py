@@ -21,9 +21,11 @@ on your computer screen!
     press ←/→ - to move left/right (roll)
 """
 
-# IP address of the connected android device
-IP_ADDR = "192.168.1.115"
+import os
 
+# IP address of the connected android device
+# IP_ADDR = "192.168.1.115"
+IP_ADDR = os.environ.get("IP_ADDR", "100.124.105.254")
 # The image from the drone can be quit big,
 #  use this to scale down the image:
 SCALE_FACTOR = 0.5

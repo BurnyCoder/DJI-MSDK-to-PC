@@ -33,7 +33,8 @@ from PIL import Image
 
 # IP address of the connected android device
 # IP_ADDR = os.environ.get("IP_ADDR", "192.168.1.115")
-IP_ADDR = os.environ.get("IP_ADDR", "100.93.47.145")
+IP_ADDR = os.environ.get("IP_ADDR", "100.124.105.254")
+
 
 # OpenAI API key from environment variable
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
