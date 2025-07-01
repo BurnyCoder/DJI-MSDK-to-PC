@@ -36,65 +36,92 @@ else:
 MOVE_VALUE = float(os.environ.get("MOVE_VALUE", "0.1"))
 
 
-def fly_forward_and_capture(drone, flight_duration=10):
+def capture_and_save_frame(drone, frame_num, timestamp, frames_dir="frames"):
     """
-    Flies the drone forward for a specified duration and captures frames every second.
+    Captures a frame from the drone and saves it immediately.
+    
+    Args:
+        drone: The drone object
+        frame_num: Frame number for naming
+        timestamp: Timestamp for unique filename
+        frames_dir: Directory to save frames
+    
+    Returns:
+        The captured frame if successful, None otherwise
+    """
+    # Create directory if it doesn't exist
+    if not os.path.exists(frames_dir):
+        os.makedirs(frames_dir)
+    
+    frame = drone.getFrame()
+    if frame is not None and frame.shape[0] > 0 and frame.shape[1] > 0:
+        print(f"Frame {frame_num} captured.")
+        
+        # Save the frame immediately
+        try:
+            pil_image = Image.fromarray(frame.astype(np.uint8))
+            file_path = os.path.join(frames_dir, f"frame_{timestamp}_{frame_num}.png")
+            pil_image.save(file_path)
+            print(f"Frame {frame_num} saved to {file_path}")
+        except Exception as e:
+            print(f"Error saving frame {frame_num}: {e}")
+        
+        return frame
+    else:
+        print(f"Could not capture frame {frame_num}.")
+        return None
+
+
+def fly_forward_and_capture(drone, flight_duration=7):
+    """
+    Flies the drone forward for a specified duration and captures frames at start and end.
     """
     print(f"Starting {flight_duration}-second forward flight and capturing frames.")
     captured_frames = []
+    
+    # Generate timestamp for unique filenames
+    timestamp = int(time.time())
+
+    # Capture frame at the start of flying
+    time.sleep(1)  # Wait before capturing
+    start_frame = capture_and_save_frame(drone, len(captured_frames) + 1, timestamp)
+    if start_frame is not None:
+        captured_frames.append(start_frame)
+        print("Captured frame at start of flight.")
+    time.sleep(1)  # Wait after capturing
 
     # Loop for flight_duration seconds, sending command every 20ms
     command_interval = 0.02  # seconds
     num_iterations = int(flight_duration / command_interval)
-    capture_interval = int(1 / command_interval)
 
     for i in range(num_iterations):
         drone.move(pitch=MOVE_VALUE, yaw=0, roll=0, ascent=0)
-
-        # Capture a frame every second
-        if (i + 1) % capture_interval == 0:
-            frame = drone.getFrame()
-            if frame is not None and frame.shape[0] > 0 and frame.shape[1] > 0:
-                captured_frames.append(frame)
-                print(f"Frame {len(captured_frames)} captured.")
-            else:
-                print(f"Could not capture frame {len(captured_frames) + 1}.")
-        
         time.sleep(command_interval)
 
     # Stop the drone
     drone.move(0, 0, 0, 0)
+    
+    # Capture frame at the end of flying
+    time.sleep(1)  # Wait before capturing
+    end_frame = capture_and_save_frame(drone, len(captured_frames) + 1, timestamp)
+    if end_frame is not None:
+        captured_frames.append(end_frame)
+        print("Captured frame at end of flight.")
+    time.sleep(1)  # Wait after capturing
+    
     print(f"Forward flight complete. Captured {len(captured_frames)} frames.")
     return captured_frames
 
 
 def analyze_frames_with_openai(captured_frames, openai_client, flight_duration):
     """
-    Analyzes a list of frames with OpenAI API, saves them, and writes the analysis to a file.
+    Analyzes a list of frames with OpenAI API and writes the analysis to a file.
     """
     if not captured_frames:
         print("No frames to analyze.")
         return
 
-    # Save frames to files with timestamp to avoid overriding
-    frames_dir = "forward_analysis_frames"
-    if not os.path.exists(frames_dir):
-        os.makedirs(frames_dir)
-    
-    # Generate timestamp for unique filenames
-    timestamp = int(time.time())
-    
-    print(f"Saving {len(captured_frames)} frames to '{frames_dir}' directory...")
-    for i, frame in enumerate(captured_frames):
-        try:
-            pil_image = Image.fromarray(frame.astype(np.uint8))
-            file_path = os.path.join(frames_dir, f"frame_{timestamp}_{i+1}.png")
-            pil_image.save(file_path)
-        except Exception as e:
-            print(f"Error saving frame {i+1}: {e}")
-    print("All frames saved.")
-
-    print("Sending frames to OpenAI for analysis...")
+    print(f"Sending {len(captured_frames)} frames to OpenAI for analysis...")
     
     base64_frames = []
     for frame in captured_frames:
@@ -177,20 +204,45 @@ class DroneAgentController:
         return f"Successfully captured {len(self.captured_frames)} frames."
 
     def rotate_90_degrees(self):
-        """Rotates the drone 90 degrees clockwise."""
+        """Rotates the drone 90 degrees clockwise and captures frames at start and end."""
         print("Rotating 90 degrees...")
-        rotation_duration = 1.5  # seconds, adjusted from 2.0 to fix 120->90 degree issue
+        rotation_duration = 1.4  # seconds, adjusted from 2.0 to fix 120->90 degree issue
         command_interval = 0.02  # seconds
         num_iterations = int(rotation_duration / command_interval)
+        
+        # Generate timestamp for unique filenames
+        timestamp = int(time.time())
+        rotation_frames = []
+        
+        # Capture frame at the start of rotation
+        time.sleep(1)  # Wait before capturing
+        start_frame = capture_and_save_frame(self.drone, len(self.captured_frames) + 1, timestamp)
+        if start_frame is not None:
+            rotation_frames.append(start_frame)
+            print("Captured frame at start of rotation.")
+        time.sleep(1)  # Wait after capturing
 
-        for _ in range(num_iterations):
+        for i in range(num_iterations):
             self.drone.move(pitch=0, yaw=1.0, roll=0, ascent=0)
             time.sleep(command_interval)
         
         # Stop rotation
         self.drone.move(0, 0, 0, 0)
-        print("Rotation complete.")
-        return "Rotated 90 degrees."
+        
+        # Capture frame at the end of rotation
+        time.sleep(1)  # Wait before capturing
+        end_frame = capture_and_save_frame(self.drone, len(self.captured_frames) + len(rotation_frames) + 1, timestamp)
+        if end_frame is not None:
+            rotation_frames.append(end_frame)
+            print("Captured frame at end of rotation.")
+        time.sleep(1)  # Wait after capturing
+        
+        print(f"Rotation complete. Captured {len(rotation_frames)} frames.")
+        
+        # Add rotation frames to the main captured_frames list
+        self.captured_frames.extend(rotation_frames)
+        
+        return f"Rotated 90 degrees and captured {len(rotation_frames)} frames."
 
     def analyze_captured_frames(self):
         """

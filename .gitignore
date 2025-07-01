@@ -134,4 +134,4 @@ cython_debug/
 # VSCode
 .vscode/ 
 
-forward_analysis_frames/
+frames/
