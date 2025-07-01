@@ -15,6 +15,7 @@ This script demonstrates autonomous drone exploration using AI agents and comput
 - [ ] Implement a natively multimodal agent (either pre-made or from scratch) instead of using image analysis as a separate tool
 - [ ] Expand agent control capabilities beyond just forward movement and 90-degree rotations (e.g., variable rotation angles, altitude control, gimbal movement)
 - [ ] Integrate YOLO as an additional tool for faster object detection and lower latency in time-critical scenarios
+- [ ] Play with lower latency (less time.sleep()), increase bandwidth of data from and to the drone
 """
 
 from OpenDJI import OpenDJI
