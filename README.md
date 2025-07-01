@@ -193,6 +193,62 @@ python yolo_tracker.py
 Ensure the MSDKRemote app is running on your phone, connected to the drone, and the control/video servers are active. Press 'x' in the terminal where the script is running to stop the drone and land it. Logged frames with detection details will be saved in the `yolo_frames` directory.
 
 
+#### AI Region Analysis Agent (`analyze-region-agent.py`)
+The `analyze-region-agent.py` script demonstrates autonomous drone exploration using AI agents and computer vision. It combines drone control with OpenAI's GPT-4 vision capabilities to explore an area and provide intelligent analysis of what it observes.
+
+**Features:**
+- Autonomous flight pattern execution using AI agent decision-making
+- Real-time frame capture during flight movements
+- Vision analysis using OpenAI's GPT-4 with custom prompts
+- Automatic report generation of observed scenes
+- Support for both pre-defined and agent-controlled exploration patterns
+
+**Prerequisites:**
+1. **OpenAI API Key:** You must have an OpenAI API key with access to GPT-4 vision models. Set it as an environment variable:
+   ```bash
+   export OPENAI_API_KEY="your-openai-api-key"
+   ```
+
+2. **Install Dependencies:** The script requires additional AI/ML packages:
+   ```bash
+   pip install smolagents openai
+   ```
+
+3. **Environment Variables:** Configure the following:
+   - `IP_ADDR`: The IP address of the Android device (e.g., `192.168.1.115`)
+   - `OPENAI_API_KEY`: Your OpenAI API key (required)
+   - `MOVE_VALUE` (optional, default: `0.1`): Movement factor for forward flight
+
+**How it works:**
+1. The drone takes off and hovers for 10 seconds
+2. An AI agent (powered by GPT-4) controls the drone using available tools:
+   - `fly_forward()`: Flies forward for 7 seconds, capturing frames at start and end
+   - `rotate_90_degrees()`: Rotates 90 degrees clockwise with frame capture
+   - `analyze_frame()`: Analyzes individual frames with custom prompts
+3. The agent explores the area based on its prompt instructions
+4. Captured frames are saved to the `frames/` directory with timestamps
+5. Analysis results are saved to `analysis.txt`
+6. The drone lands automatically after completing the exploration
+
+**Running the script:**
+```bash
+python analyze-region-agent.py
+```
+
+**Customization:**
+You can modify the agent's behavior by changing the prompt on line 452. For example:
+- Systematic exploration: "Fly forward, rotate, fly forward, rotate..."
+- Targeted search: "Look for people or vehicles and analyze them in detail"
+- Area mapping: "Explore the area systematically and create a comprehensive report"
+
+The agent will make function calls to explore and analyze the environment, providing detailed feedback about what it observes.
+
+**Output:**
+- Captured frames: Saved in `frames/` directory as PNG files
+- Analysis report: Written to `analysis.txt` with detailed descriptions
+- Console output: Real-time feedback on drone movements and captures
+
+
 #### Control
 This give you control about over the drone, like the controller / joystick. </br>
 It can be said that it wrappes the [VirtualStickManager](https://developer.dji.com/api-reference-v5/android-api/Components/IVirtualStickManager/IVirtualStickManager.html).
