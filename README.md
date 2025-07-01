@@ -248,6 +248,13 @@ The agent will make function calls to explore and analyze the environment, provi
 - Analysis report: Written to `analysis.txt` with detailed descriptions
 - Console output: Real-time feedback on drone movements and captures
 
+**TODO - Future Improvements:**
+- [ ] Capture and analyze frame before making first action to understand initial environment
+- [ ] Use OpenAI Assistant API instead of direct LLM calls for better visual memory and context retention
+- [ ] Use other LLMs such as Gemini and Claude
+- [ ] Implement a natively multimodal agent (either pre-made or from scratch) instead of using image analysis as a separate tool
+- [ ] Expand agent control capabilities beyond just forward movement and 90-degree rotations (e.g., variable rotation angles, altitude control, gimbal movement)
+- [ ] Integrate YOLO as an additional tool for faster object detection and lower latency in time-critical scenarios
 
 #### Control
 This give you control about over the drone, like the controller / joystick. </br>
