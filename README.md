@@ -194,7 +194,7 @@ Ensure the MSDKRemote app is running on your phone, connected to the drone, and 
 
 
 #### AI Region Analysis Agent (`analyze-region-agent.py`)
-The `analyze-region-agent.py` script demonstrates autonomous drone exploration using AI agents and computer vision. It combines drone control with OpenAI's GPT-4 vision capabilities to explore an area and provide intelligent analysis of what it observes.
+The `analyze-region-agent.py` script demonstrates autonomous drone exploration using AI agents and computer vision. It combines drone control with OpenAI's GPT-4 vision capabilities to explore an area and provide intelligent analysis of what it observes, and takes actions based on the analysis.
 
 **Features:**
 - Autonomous flight pattern execution using AI agent decision-making

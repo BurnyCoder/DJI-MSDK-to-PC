@@ -1,6 +1,20 @@
 """
-This application flies a DJI drone forward for 5 seconds, capturing one frame per second.
-It then sends these frames to OpenAI for analysis.
+This script demonstrates autonomous drone exploration using AI agents and computer vision. It combines agentic drone control with OpenAI's GPT-4 vision capabilities to explore an area and provide intelligent analysis of what it observes, and takes actions based on the analysis.
+
+**Features:**
+- Autonomous flight pattern execution using AI agent decision-making
+- Real-time frame capture during flight movements
+- Vision analysis using OpenAI's GPT-4 with custom prompts
+- Automatic report generation of observed scenes
+- Support for both pre-defined and agent-controlled exploration patterns
+
+**TODO - Future Improvements:**
+- [ ] Capture and analyze frame before making first action to understand initial environment
+- [ ] Use OpenAI Assistant API instead of direct LLM calls for better visual memory and context retention
+- [ ] Use other LLMs such as Gemini and Claude
+- [ ] Implement a natively multimodal agent (either pre-made or from scratch) instead of using image analysis as a separate tool
+- [ ] Expand agent control capabilities beyond just forward movement and 90-degree rotations (e.g., variable rotation angles, altitude control, gimbal movement)
+- [ ] Integrate YOLO as an additional tool for faster object detection and lower latency in time-critical scenarios
 """
 
 from OpenDJI import OpenDJI
