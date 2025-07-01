@@ -76,16 +76,19 @@ def analyze_frames_with_openai(captured_frames, openai_client, flight_duration):
         print("No frames to analyze.")
         return
 
-    # Save frames to files
+    # Save frames to files with timestamp to avoid overriding
     frames_dir = "forward_analysis_frames"
     if not os.path.exists(frames_dir):
         os.makedirs(frames_dir)
+    
+    # Generate timestamp for unique filenames
+    timestamp = int(time.time())
     
     print(f"Saving {len(captured_frames)} frames to '{frames_dir}' directory...")
     for i, frame in enumerate(captured_frames):
         try:
             pil_image = Image.fromarray(frame.astype(np.uint8))
-            file_path = os.path.join(frames_dir, f"frame_{i+1}.png")
+            file_path = os.path.join(frames_dir, f"frame_{timestamp}_{i+1}.png")
             pil_image.save(file_path)
         except Exception as e:
             print(f"Error saving frame {i+1}: {e}")
@@ -170,13 +173,13 @@ class DroneAgentController:
         Flies the drone forward for 10 seconds and captures one frame per second.
         The captured frames are stored internally for later analysis.
         """
-        self.captured_frames = fly_forward_and_capture(self.drone, flight_duration=10)
+        self.captured_frames = fly_forward_and_capture(self.drone, flight_duration=7)
         return f"Successfully captured {len(self.captured_frames)} frames."
 
     def rotate_90_degrees(self):
         """Rotates the drone 90 degrees clockwise."""
         print("Rotating 90 degrees...")
-        rotation_duration = 2  # seconds, this is a guess, may need tuning
+        rotation_duration = 1.5  # seconds, adjusted from 2.0 to fix 120->90 degree issue
         command_interval = 0.02  # seconds
         num_iterations = int(rotation_duration / command_interval)
 
