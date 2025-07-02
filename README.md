@@ -257,6 +257,57 @@ The agent will make function calls to explore and analyze the environment, provi
 - [ ] Integrate YOLO as an additional tool for faster object detection and lower latency in time-critical scenarios
 - [ ] Play with lower latency (less time.sleep()), increase bandwidth of data from and to the drone
 
+#### Fly Up 100m and Photograph (`fly_up_100m_and_photograph.py`)
+The `fly_up_100m_and_photograph.py` script demonstrates an autonomous mission to fly the drone to 100 meters altitude, capture a photo, and return safely.
+
+**Features:**
+- Automated takeoff and altitude control
+- Precise vertical movement to reach 100 meters
+- Photo capture at target altitude
+- Controlled descent and landing
+- Emergency landing capability on error
+
+**Prerequisites:**
+1. **Environment Variables:** Configure the following:
+   - `IP_ADDR`: The IP address of the Android device (default: `100.105.85.101`)
+
+**Safety Warning:**
+⚠️ **IMPORTANT:** This script flies the drone to 100 meters altitude. Before running:
+- Ensure you have clear airspace above
+- Check local regulations for maximum allowed altitude
+- Verify good GPS signal
+- Ensure sufficient battery (>50% recommended)
+- Have visual line of sight maintained
+- Be prepared to take manual control if needed
+
+**How it works:**
+1. Connects to the drone and enables SDK control
+2. Performs automated takeoff and waits for stabilization
+3. Ascends to 100 meters using controlled vertical movement
+4. Captures and saves a photo at the target altitude
+5. Descends back to a safe altitude
+6. Performs automated landing
+
+**Running the script:**
+```bash
+python fly_up_100m_and_photograph.py
+```
+
+**Configuration:**
+You can adjust the following parameters in the script:
+- `ASCENT_SPEED`: Speed of ascent/descent (0.0 to 1.0, default: 1.0)
+- `FLIGHT_DURATION_TO_100M`: Estimated time to reach 100m (default: 5 seconds)
+
+**Output:**
+- Photo saved as `photo_at_100m_[timestamp].png` in the current directory
+- Console output with real-time flight status updates
+
+**Safety Features:**
+- Emergency landing on any error during flight
+- Automatic SDK control disable after mission
+- Movement commands sent at 20ms intervals for smooth control
+- Stabilization pauses between flight phases
+
 #### Control
 This give you control about over the drone, like the controller / joystick. </br>
 It can be said that it wrappes the [VirtualStickManager](https://developer.dji.com/api-reference-v5/android-api/Components/IVirtualStickManager/IVirtualStickManager.html).
