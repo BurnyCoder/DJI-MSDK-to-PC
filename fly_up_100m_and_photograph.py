@@ -1,6 +1,5 @@
 """
 Script to fly drone up 100 meters, take a picture, and land.
-Inspired by fly_forward method from analyze-region-agent.py
 """
 
 from OpenDJI import OpenDJI
